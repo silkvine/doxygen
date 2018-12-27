@@ -37,7 +37,7 @@
 #include <ctype.h>
 #include <qregexp.h>
 #include <qdir.h>
-#include <qstringlist.h>
+#include <qcstringlist.h>
 #include "entry.h"
 #include "doxygen.h"
 #include "message.h"
@@ -86,7 +86,7 @@ class UseEntry
 {
  public: 
    QCString module; // just for debug
-   QStringList onlyNames;   /* entries of the ONLY-part */
+   QCStringList onlyNames;   /* entries of the ONLY-part */
 };
 
 /**
@@ -105,10 +105,11 @@ class UseSDict : public SDict<UseEntry>
 class Scope 
 {
   public:
-    QStringList useNames; //!< contains names of used modules
+    QCStringList useNames; //!< contains names of used modules
     QDict<void> localVars; //!< contains names of local variables
+    QDict<void> externalVars; //!< contains names of external entities
 
-    Scope() : localVars(7, FALSE /*caseSensitive*/) {}
+    Scope() : localVars(7, FALSE /*caseSensitive*/), externalVars(7, FALSE /*caseSensitive*/) {}
 };
 
 /*===================================================================*/
@@ -122,7 +123,8 @@ static QCString  currentClass=0;             //!< name of the current enclosing 
 static UseSDict  *useMembers= new UseSDict;  //!< info about used modules
 static UseEntry  *useEntry = 0;              //!< current use statement info
 static QList<Scope> scopeStack;
-// static QStringList *currentUseNames= new QStringList; //! contains names of used modules of current program unit
+static bool      g_isExternal = false;
+// static QCStringList *currentUseNames= new QCStringList; //! contains names of used modules of current program unit
 static QCString str="";         //!> contents of fortran string
 
 static CodeOutputInterface * g_code;
@@ -434,7 +436,7 @@ static bool getFortranDefs(const QCString &memberName, const QCString &moduleNam
   Scope *scope;
   for (it.toLast();(scope=it.current());--it)
   {
-    if (scope->localVars.find(memberName))
+    if (scope->localVars.find(memberName) && (!scope->externalVars.find(memberName)))
       return FALSE;
   }
 
@@ -478,7 +480,7 @@ static bool getFortranDefs(const QCString &memberName, const QCString &moduleNam
 	     if (ue) 
 	     {
                // check if only-list exists and if current entry exists is this list
-	       QStringList &only= ue->onlyNames;
+	       QCStringList &only= ue->onlyNames;
 	       if (only.isEmpty()) 
 	       {
                //cout << " found in module " << moduleName << " entry " << memberName <<  endl;
@@ -486,10 +488,10 @@ static bool getFortranDefs(const QCString &memberName, const QCString &moduleNam
                }
                else
 	       {
-	         for ( QStringList::Iterator it = only.begin(); it != only.end(); ++it)
+	         for ( QCStringList::Iterator it = only.begin(); it != only.end(); ++it)
                  {
                    //cout << " search in only: " << moduleName << ":: " << memberName << "==" << (*it)<<  endl;
-		   if (memberName == (*it).utf8())
+		   if (memberName == *it)
 	           {
                      return TRUE; // found in ONLY-part of use list
 	           }
@@ -632,9 +634,9 @@ static void endScope()
 
   Scope *scope = scopeStack.getLast();
   scopeStack.removeLast();
-  for ( QStringList::Iterator it = scope->useNames.begin(); it != scope->useNames.end(); ++it) 
+  for ( QCStringList::Iterator it = scope->useNames.begin(); it != scope->useNames.end(); ++it) 
   {
-    useMembers->remove((*it).utf8());
+    useMembers->remove(*it);
   }
   delete scope;
 }
@@ -648,7 +650,10 @@ static void addUse(const QCString &moduleName)
 static void addLocalVar(const QCString &varName) 
 {
   if (!scopeStack.isEmpty())
+  {
     scopeStack.getLast()->localVars.insert(varName, (void*)1);
+    if (g_isExternal) scopeStack.getLast()->externalVars.insert(varName, (void*)1);
+  }
 }
 
 //----------------------------------------------------------------------------
@@ -969,11 +974,18 @@ LANGUAGE_BIND_SPEC BIND{BS}"("{BS}C{BS}(,{BS}NAME{BS}"="{BS}"\""(.*)"\""{BS})?")
 					  endFontClass();
                                        }
 <Start>{ATTR_SPEC}		       { 
+                                          if (QCString(yytext) == "external")
+                                          {
+                                            yy_push_state(YY_START);
+                                            BEGIN(Declaration);
+                                            g_isExternal = true;
+                                          }
    					  startFontClass("keywordtype");
 					  g_code->codify(yytext);
 					  endFontClass();
                                        }
 <Declaration>({TYPE_SPEC}|{ATTR_SPEC})/[,:( ] { //| variable declaration
+					  if (QCString(yytext) == "external") g_isExternal = true;
   					  startFontClass("keywordtype");
 					  g_code->codify(yytext);
 					  endFontClass();
@@ -1046,6 +1058,7 @@ LANGUAGE_BIND_SPEC BIND{BS}"("{BS}C{BS}(,{BS}NAME{BS}"="{BS}"\""(.*)"\""{BS})?")
 					  g_contLineNr++;
                                           if (!(g_hasContLine && g_hasContLine[g_contLineNr - 1]))
                                           {
+                                            g_isExternal = false;
                                             yy_pop_state();
                                           }
                                           YY_FTN_RESET
