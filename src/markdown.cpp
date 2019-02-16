@@ -1886,10 +1886,16 @@ static int writeTableBlock(GrowBuf &out,const char *data,int size)
 static int hasLineBreak(const char *data,int size)
 {
   int i=0;
-  while (i<size && data[i]!='\n') i++;
+  int j=0;
+  // search for end of line and also check if it is not a completely blank
+  while (i<size && data[i]!='\n')
+  {
+    if (data[i]!=' ' && data[i]!='\t') j++; // some non whitespace
+    i++;
+  }
   if (i>=size) return 0; // empty line
   if (i<2) return 0; // not long enough
-  return (data[i-1]==' ' && data[i-2]==' ');
+  return (j>0 && data[i-1]==' ' && data[i-2]==' '); // non blank line with at two spaces at the end
 }
 
 
@@ -1947,7 +1953,7 @@ void writeOneLineHeaderOrRuler(GrowBuf &out,const char *data,int size)
     out.addStr(data,size);
     if (hasLineBreak(data,size))
     {
-      out.addStr("\n");
+      out.addStr("<br>");
     }
   }
 }
@@ -2282,28 +2288,6 @@ static QCString processBlocks(const QCString &s,int indent)
             out.addStr(" ");
             out.addStr(header);
             out.addStr("\n\n");
-            SectionInfo *si = Doxygen::sectionDict->find(id);
-            if (si)
-            {
-              if (si->lineNr != -1)
-              {
-                warn(g_fileName,g_lineNr,"multiple use of section label '%s', (first occurrence: %s, line %d)",header.data(),si->fileName.data(),si->lineNr);
-              }
-              else
-              {
-                warn(g_fileName,g_lineNr,"multiple use of section label '%s', (first occurrence: %s)",header.data(),si->fileName.data());
-              }
-            }
-            else
-            {
-              si = new SectionInfo(g_fileName,g_lineNr,id,header,
-                      level==1 ? SectionInfo::Section : SectionInfo::Subsection,level);
-              if (g_current)
-              {
-                g_current->anchors->append(si);
-              }
-              Doxygen::sectionDict->append(id,si);
-            }
           }
           else
           {
@@ -2451,8 +2435,8 @@ static QCString extractPageTitle(QCString &docs,QCString &id)
 static QCString detab(const QCString &s,int &refIndent)
 {
   static int tabSize = Config_getInt(TAB_SIZE);
-  GrowBuf out;
   int size = s.length();
+  GrowBuf out(size);
   const char *data = s.data();
   int i=0;
   int col=0;
@@ -2535,7 +2519,9 @@ QCString processMarkdown(const QCString &fileName,const int lineNr,Entry *e,cons
   out.clear();
   int refIndent;
   // for replace tabs by spaces
-  QCString s = detab(input,refIndent);
+  QCString s = input;
+  if (s.at(s.length()-1)!='\n') s += "\n"; // see PR #6766
+  s = detab(s,refIndent);
   //printf("======== DeTab =========\n---- output -----\n%s\n---------\n",s.data());
   // then process quotation blocks (as these may contain other blocks)
   s = processQuotations(s,refIndent);
@@ -2601,19 +2587,20 @@ void MarkdownFileParser::parseInput(const char *fileName,
     }
   }
   int lineNr=1;
-  int position=0;
 
   // even without markdown support enabled, we still 
   // parse markdown files as such
   bool markdownEnabled = Doxygen::markdownSupport;
   Doxygen::markdownSupport = TRUE;
 
-  bool needsEntry = FALSE;
   Protection prot=Public;
+  bool needsEntry = FALSE;
+  int position=0;
+  QCString processedDocs = preprocessCommentBlock(docs,fileName,lineNr);
   while (parseCommentBlock(
         this,
         current,
-        docs,
+        processedDocs,
         fileName,
         lineNr,
         FALSE,     // isBrief

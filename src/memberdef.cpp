@@ -596,6 +596,9 @@ class MemberDefImpl
                               // FALSE => block is put before declaration.
     ClassDef *category;
     MemberDef *categoryRelation;
+    QCString declFileName;
+    int declLine;
+    int declColumn;
 };
 
 MemberDefImpl::MemberDefImpl() :
@@ -609,7 +612,9 @@ MemberDefImpl::MemberDefImpl() :
     defTmpArgLists(0),
     classSectionSDict(0),
     category(0),
-    categoryRelation(0)
+    categoryRelation(0),
+    declLine(-1),
+    declColumn(-1)
 {
 }
 
@@ -767,7 +772,6 @@ MemberDef::MemberDef(const char *df,int dl,int dc,
   //printf("MemberDef::MemberDef(%s)\n",na);
   m_impl = new MemberDefImpl;
   m_impl->init(this,t,a,e,p,v,s,r,mt,tal,al,meta);
-  number_of_flowkw = 1;
   m_isLinkableCached    = 0;
   m_isConstructorCached = 0;
   m_isDestructorCached  = 0;
@@ -1080,6 +1084,7 @@ QCString MemberDef::anchor() const
 void MemberDef::_computeLinkableInProject()
 {
   static bool extractStatic  = Config_getBool(EXTRACT_STATIC);
+  static bool extractPrivateVirtual = Config_getBool(EXTRACT_PRIV_VIRTUAL);
   m_isLinkableCached = 2; // linkable
   //printf("MemberDef::isLinkableInProject(name=%s)\n",name().data());
   if (isHidden())
@@ -1133,7 +1138,8 @@ void MemberDef::_computeLinkableInProject()
     m_isLinkableCached = 1; // in file (and not in namespace) but file not linkable
     return;
   }
-  if (!protectionLevelVisible(m_impl->prot) && m_impl->mtype!=MemberType_Friend)
+  if ((!protectionLevelVisible(m_impl->prot) && m_impl->mtype!=MemberType_Friend) &&
+       !(m_impl->prot==Private && m_impl->virt!=Normal && extractPrivateVirtual))
   {
     //printf("private and invisible!\n");
     m_isLinkableCached = 1; // hidden due to protection
@@ -1315,6 +1321,7 @@ ClassDef *MemberDef::getClassDefOfAnonymousType()
 bool MemberDef::isBriefSectionVisible() const
 {
   static bool extractStatic       = Config_getBool(EXTRACT_STATIC);
+  static bool extractPrivateVirtual = Config_getBool(EXTRACT_PRIV_VIRTUAL);
   static bool hideUndocMembers    = Config_getBool(HIDE_UNDOC_MEMBERS);
   static bool briefMemberDesc     = Config_getBool(BRIEF_MEMBER_DESC);
   static bool repeatBrief         = Config_getBool(REPEAT_BRIEF);
@@ -1365,9 +1372,12 @@ bool MemberDef::isBriefSectionVisible() const
                                   );
 
   // only include members that are non-private unless EXTRACT_PRIVATE is
-  // set to YES or the member is part of a group
+  // set to YES or the member is part of a group. And as a special case,
+  // private *documented* virtual members are shown if EXTRACT_PRIV_VIRTUAL
+  // is set to YES
   bool visibleIfPrivate = (protectionLevelVisible(protection()) ||
-                           m_impl->mtype==MemberType_Friend
+                           m_impl->mtype==MemberType_Friend ||
+                           (m_impl->prot==Private && m_impl->virt!=Normal && extractPrivateVirtual && hasDocs)
                           );
 
   // hide member if it overrides a member in a superclass and has no
@@ -1639,11 +1649,12 @@ void MemberDef::writeDeclaration(OutputList &ol,
   if (!name().isEmpty() && name().at(0)!='@') // hide anonymous stuff
   {
     static bool extractPrivate = Config_getBool(EXTRACT_PRIVATE);
+    static bool extractPrivateVirtual = Config_getBool(EXTRACT_PRIV_VIRTUAL);
     static bool extractStatic  = Config_getBool(EXTRACT_STATIC);
     //printf("Member name=`%s gd=%p md->groupDef=%p inGroup=%d isLinkable()=%d hasDocumentation=%d\n",name().data(),gd,getGroupDef(),inGroup,isLinkable(),hasDocumentation());
     if (!(name().isEmpty() || name().at(0)=='@') && // name valid
         (hasDocumentation() || isReference()) && // has docs
-        !(m_impl->prot==Private && !extractPrivate && m_impl->mtype!=MemberType_Friend) && // hidden due to protection
+        !(m_impl->prot==Private && !extractPrivate && (m_impl->virt==Normal || !extractPrivateVirtual) && m_impl->mtype!=MemberType_Friend) && // hidden due to protection
         !(isStatic() && m_impl->classDef==0 && !extractStatic) // hidden due to static-ness
        )
     {
@@ -1896,6 +1907,7 @@ bool MemberDef::isDetailedSectionLinkable() const
   static bool briefMemberDesc   = Config_getBool(BRIEF_MEMBER_DESC);
   static bool hideUndocMembers  = Config_getBool(HIDE_UNDOC_MEMBERS);
   static bool extractStatic     = Config_getBool(EXTRACT_STATIC);
+  static bool extractPrivateVirtual = Config_getBool(EXTRACT_PRIV_VIRTUAL);
 
   // the member has details documentation for any of the following reasons
   bool docFilter =
@@ -1933,7 +1945,8 @@ bool MemberDef::isDetailedSectionLinkable() const
 
   // only include members that are non-private unless EXTRACT_PRIVATE is
   // set to YES or the member is part of a   group
-  bool privateFilter = protectionLevelVisible(protection()) || m_impl->mtype==MemberType_Friend;
+  bool privateFilter = protectionLevelVisible(protection()) || m_impl->mtype==MemberType_Friend ||
+                       (m_impl->prot==Private && m_impl->virt!=Normal && extractPrivateVirtual);
 
   // member is part of an anonymous scope that is the type of
   // another member in the list.
@@ -2020,6 +2033,7 @@ void MemberDef::getLabels(QStrList &sl,Definition *container) const
           if    (isPrivateGettable())     sl.append("private get");
           if    (isPrivateSettable())     sl.append("private set");
         }
+        if      (isConstExpr())           sl.append("constexpr");
         if      (isAddable())             sl.append("add");
         if      (!isUNOProperty() && isRemovable()) sl.append("remove");
         if      (isRaisable())            sl.append("raise");
@@ -4605,6 +4619,11 @@ bool MemberDef::isSliceLocal() const
   return (m_impl->memSpec&Entry::Local)!=0;
 }
 
+bool MemberDef::isConstExpr() const
+{
+  return (m_impl->memSpec&Entry::ConstExpr)!=0;
+}
+
 MemberList *MemberDef::enumFieldList() const
 {
   return m_impl->enumFields;
@@ -4731,6 +4750,24 @@ MemberDef *MemberDef::getGroupAlias() const
   return m_impl->groupAlias;
 }
 
+QCString MemberDef::getDeclFileName() const
+{
+  return m_impl->declFileName;
+}
+
+int MemberDef::getDeclLine() const
+{
+  return m_impl->declLine;
+}
+
+int MemberDef::getDeclColumn() const
+{
+  return m_impl->declColumn;
+}
+
+
+//----------------------------------------------
+
 void MemberDef::setMemberType(MemberType t)
 {
   m_impl->mtype=t;
@@ -4777,11 +4814,6 @@ void MemberDef::setMaxInitLines(int lines)
   {
     m_impl->userInitLines=lines;
   }
-}
-
-void MemberDef::setExplicitExternal(bool b)
-{
-  m_impl->explExt=b;
 }
 
 void MemberDef::setReadAccessor(const char *r)
@@ -4853,9 +4885,38 @@ void MemberDef::setAnonymousEnumType(MemberDef *md)
   m_impl->annEnumType = md;
 }
 
-void MemberDef::setPrototype(bool p)
+void MemberDef::setPrototype(bool p,const QCString &df,int line,int column)
 {
   m_impl->proto=p;
+  if (p)
+  {
+    setDeclFile(df,line,column);
+  }
+  else
+  {
+    setDefFile(df,line,column);
+  }
+}
+
+void MemberDef::setExplicitExternal(bool b,const QCString &df,int line,int column)
+{
+  m_impl->explExt=b;
+  if (b)
+  {
+    setDeclFile(df,line,column);
+  }
+  else
+  {
+    setDefFile(df,line,column);
+  }
+}
+
+
+void MemberDef::setDeclFile(const QCString &df,int line,int column)
+{
+  m_impl->declFileName = df;
+  m_impl->declLine = line;
+  m_impl->declColumn = column;
 }
 
 void MemberDef::setMemberGroupId(int id)
@@ -5001,16 +5062,6 @@ void MemberDef::invalidateCachedArgumentTypes()
 {
   invalidateCachedTypesInArgumentList(m_impl->defArgList);
   invalidateCachedTypesInArgumentList(m_impl->declArgList);
-}
-
-void MemberDef::addFlowKeyWord()
-{
-  number_of_flowkw++;
-}
-
-int MemberDef::numberOfFlowKeyWords()
-{
-  return number_of_flowkw;
 }
 
 //----------------

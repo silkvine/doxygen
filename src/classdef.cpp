@@ -620,6 +620,10 @@ void ClassDef::internalInsertMember(MemberDef *md,
     {
       addMemberToList(MemberListType_relatedMembers,md,FALSE);
     }
+    else if (md->isFunction() && md->protection()==Private && md->virtualness()!=Normal && Config_getBool(EXTRACT_PRIV_VIRTUAL))
+    {
+      addMemberToList(MemberListType_functionMembers,md,FALSE);
+    }
     else
     {
       switch (md->memberType())
@@ -2920,7 +2924,7 @@ void ClassDef::setTemplateArguments(ArgumentList *al)
 /*! Returns \c TRUE iff this class or a class inheriting from this class
  *  is \e not defined in an external tag file.
  */
-bool ClassDef::hasNonReferenceSuperClass()
+bool ClassDef::hasNonReferenceSuperClass() const
 {
   bool found=!isReference() && isLinkableInProject() && !isHidden();
   if (found)
@@ -3043,7 +3047,7 @@ bool ClassDef::isLinkable() const
 
 
 /*! the class is visible in a class diagram, or class hierarchy */
-bool ClassDef::isVisibleInHierarchy()
+bool ClassDef::isVisibleInHierarchy() const
 {
   static bool allExternals     = Config_getBool(ALLEXTERNALS);
   static bool hideUndocClasses = Config_getBool(HIDE_UNDOC_CLASSES);
@@ -3077,7 +3081,7 @@ bool ClassDef::hasDocumentation() const
 // returns TRUE iff class definition `bcd' represents an (in)direct base
 // class of class definition `cd'.
 
-bool ClassDef::isBaseClass(ClassDef *bcd, bool followInstances,int level)
+bool ClassDef::isBaseClass(ClassDef *bcd, bool followInstances,int level) const
 {
   bool found=FALSE;
   //printf("isBaseClass(cd=%s) looking for %s\n",name().data(),bcd->name().data());
@@ -3107,7 +3111,7 @@ bool ClassDef::isBaseClass(ClassDef *bcd, bool followInstances,int level)
 
 //----------------------------------------------------------------------
 
-bool ClassDef::isSubClass(ClassDef *cd,int level)
+bool ClassDef::isSubClass(ClassDef *cd,int level) const
 {
   bool found=FALSE;
   if (level>256)
@@ -4270,7 +4274,7 @@ MemberDef *ClassDef::getMemberByName(const QCString &name) const
   return xmd;
 }
 
-bool ClassDef::isAccessibleMember(MemberDef *md)
+bool ClassDef::isAccessibleMember(MemberDef *md) const
 {
   return md->getClassDef() && isBaseClass(md->getClassDef(),TRUE);
 }
@@ -4293,7 +4297,7 @@ MemberList *ClassDef::createMemberList(MemberListType lt)
   return ml;
 }
 
-MemberList *ClassDef::getMemberList(MemberListType lt)
+MemberList *ClassDef::getMemberList(MemberListType lt) const
 {
   QListIterator<MemberList> mli(m_impl->memberLists);
   MemberList *ml;

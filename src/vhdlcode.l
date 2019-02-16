@@ -1549,12 +1549,10 @@ void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString 
   //printf("***parseCode() exBlock=%d exName=%s fd=%p\n",exBlock,exName,fd);
   if (s.isEmpty()) return;
   printlex(yy_flex_debug, TRUE, __FILE__, fd ? fd->fileName().data(): NULL);
-  TooltipManager::instance()->clearTooltips();
   if (memberDef)
   {
     ClassDef *dd=memberDef->getClassDef();
     if (dd) g_CurrClass=dd->name();
-    startLine--;
   }
   resetVhdlCodeParserState();
   g_code = &od;
@@ -1599,10 +1597,7 @@ void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString 
     g_exampleFile = convertNameToFile(g_exampleName+"-example");
   }
   g_includeCodeFragment = inlineFragment;
-  if (!memberDef)
-  {
-    startCodeLine();
-  }
+  startCodeLine();
   // g_type.resize(0);
   // g_name.resize(0);
   // g_args.resize(0);
@@ -1622,10 +1617,6 @@ void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString 
   if (g_needsTermination)
   {
     endCodeLine();
-  }
-  if (fd)
-  {
-    TooltipManager::instance()->writeTooltips(*g_code);
   }
   if (cleanupSourceDef)
   {

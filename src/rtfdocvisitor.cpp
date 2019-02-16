@@ -383,7 +383,7 @@ void RTFDocVisitor::visit(DocVerbatim *s)
     case DocVerbatim::PlantUML:
       {
         static QCString rtfOutput = Config_getString(RTF_OUTPUT);
-        QCString baseName = writePlantUMLSource(rtfOutput,s->exampleFile(),s->text());
+        QCString baseName = PlantumlManager::instance()->writePlantUMLSource(rtfOutput,s->exampleFile(),s->text(),PlantumlManager::PUML_BITMAP);
 
         writePlantUMLFile(baseName, s->hasCaption());
         visitCaption(this, s->children());
@@ -771,16 +771,18 @@ void RTFDocVisitor::visitPre(DocSimpleSect *s)
     m_t << "}"; // end bold
     incIndentLevel();
     m_t << rtf_Style_Reset << getStyle("DescContinue");
+    m_t << "{\\s17 \\sa60 \\sb30\n";
   }
   m_lastIsPara=FALSE;
 }
 
-void RTFDocVisitor::visitPost(DocSimpleSect *)
+void RTFDocVisitor::visitPost(DocSimpleSect *s)
 {
   if (m_hide) return;
   DBG_RTF("{\\comment RTFDocVisitor::visitPost(DocSimpleSect)}\n");
   if (!m_lastIsPara) m_t << "\\par" << endl;
   decIndentLevel();
+  if (s->type()!=DocSimpleSect::User && s->type()!=DocSimpleSect::Rcs) m_t << "}";
   m_t << "}"; // end desc
   m_lastIsPara=TRUE;
 }
@@ -1868,6 +1870,6 @@ void RTFDocVisitor::writePlantUMLFile(const QCString &fileName, bool hasCaption)
     baseName=baseName.right(baseName.length()-i-1);
   }
   QCString outDir = Config_getString(RTF_OUTPUT);
-  generatePlantUMLOutput(fileName,outDir,PUML_BITMAP);
+  PlantumlManager::instance()->generatePlantUMLOutput(fileName,outDir,PlantumlManager::PUML_BITMAP);
   includePicturePreRTF(baseName + ".png", true, hasCaption);
 }

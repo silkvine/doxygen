@@ -335,11 +335,11 @@ static QCString findAndCopyImage(const char *fileName,DocImage::Type type, bool 
               "could not write output image %s",qPrint(outputFile));
         }
       }
-      else
-      {
-        warn(g_fileName,doctokenizerYYlineno,
-             "Prevented to copy file %s onto itself!\n",qPrint(inputFile));
-      }
+      //else
+      //{
+      //  warn(g_fileName,doctokenizerYYlineno,
+      //       "Prevented to copy file %s onto itself!\n",qPrint(inputFile));
+      //}
     }
     else
     {
@@ -422,7 +422,7 @@ static void checkArgumentName(const QCString &name,bool isParam)
       argName=argName.stripWhiteSpace();
       //printf("argName=`%s' aName=%s\n",argName.data(),aName.data());
       if (argName.right(3)=="...") argName=argName.left(argName.length()-3);
-      if (aName==argName) 
+      if (aName==argName && isParam)
       {
 	g_paramsFound.insert(aName,(void *)(0x8));
 	found=TRUE;
@@ -509,7 +509,7 @@ static void checkUnOrMultipleDocumentedParams()
                          "argument '" + aName +
                          "' from the argument list of " +
                          QCString(g_memberDef->qualifiedName()) +
-                         " has muliple @param documentation sections");
+                         " has multiple @param documentation sections");
         }
       }
       if (found)
@@ -616,27 +616,16 @@ static void detectNoDocumentedParams()
         g_memberDef->setHasDocumentedParams(TRUE);
       }
     }
-    //printf("Member %s hadDocumentedReturnType()=%d hasReturnCommand=%d\n",
+    //printf("Member %s hasDocumentedReturnType()=%d hasReturnCommand=%d\n",
     //    g_memberDef->name().data(),g_memberDef->hasDocumentedReturnType(),g_hasReturnCommand);
     if (!g_memberDef->hasDocumentedReturnType() && // docs not yet found
         g_hasReturnCommand)
     {
       g_memberDef->setHasDocumentedReturnType(TRUE);
     }
-    else if ( // see if return needs to documented 
-        g_memberDef->hasDocumentedReturnType() ||
-        returnType.isEmpty()         || // empty return type
-        returnType.find("void")!=-1  || // void return type
-        returnType.find("subroutine")!=-1 || // fortran subroutine
-        g_memberDef->isConstructor() || // a constructor
-        g_memberDef->isDestructor()     // or destructor
-       )
-    {
-      g_memberDef->setHasDocumentedReturnType(TRUE);
-    }
     else if ( // see if return type is documented in a function w/o return type
-        g_memberDef->hasDocumentedReturnType() &&
-        (returnType.isEmpty()              || // empty return type
+        g_hasReturnCommand &&
+        (//returnType.isEmpty()              || // empty return type
          returnType.find("void")!=-1       || // void return type
          returnType.find("subroutine")!=-1 || // fortran subroutine
          g_memberDef->isConstructor()      || // a constructor
@@ -644,7 +633,18 @@ static void detectNoDocumentedParams()
         )
        )
     {
-      warn_doc_error(g_fileName,doctokenizerYYlineno,"documented empty return type");
+      warn_doc_error(g_fileName,doctokenizerYYlineno,"documented empty return type of  %s",g_memberDef->qualifiedName().data());
+    }
+    else if ( // see if return needs to documented 
+        g_memberDef->hasDocumentedReturnType() ||
+        //returnType.isEmpty()         || // empty return type
+        returnType.find("void")!=-1  || // void return type
+        returnType.find("subroutine")!=-1 || // fortran subroutine
+        g_memberDef->isConstructor() || // a constructor
+        g_memberDef->isDestructor()     // or destructor
+       )
+    {
+      g_memberDef->setHasDocumentedReturnType(TRUE);
     }
   }
 }
@@ -2979,6 +2979,11 @@ DocImage::DocImage(DocNode *parent,const HtmlAttribList &attribs,const QCString 
       m_url(url), m_inlineImage(inlineImage)
 {
   m_parent = parent;
+}
+
+bool DocImage::isSVG() const
+{
+  return m_url.isEmpty() ? m_name.right(4)==".svg" : m_url.right(4)==".svg";
 }
 
 void DocImage::parse()
@@ -7586,7 +7591,7 @@ DocRoot *validatingParseDoc(const char *fileName,int startLine,
       case Definition::TypePage:
         {
           PageDef *pd = (PageDef *)ctx;
-          if (!pd->title().isEmpty())
+          if (pd->hasTitle())
           {
             name = theTranslator->trPage(TRUE,TRUE)+" "+pd->title();
           }

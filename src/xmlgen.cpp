@@ -582,6 +582,11 @@ static void generateXMLForMember(MemberDef *md,FTextStream &ti,FTextStream &t,De
   if (md->isStatic()) t << "yes"; else t << "no";
   t << "\"";
 
+  if (md->isConstExpr())
+  {
+    t << " constexpr=\"yes\"";
+  }
+
   if (isFunc)
   {
     ArgumentList *al = md->argumentList();
@@ -627,6 +632,11 @@ static void generateXMLForMember(MemberDef *md,FTextStream &ti,FTextStream &t,De
     if (md->isRequired())
     {
       t << " required=\"yes\"";
+    }
+
+    if (md->isNoExcept())
+    {
+      t << " noexcept=\"yes\"";
     }
 
     if (al && al->volatileSpecifier)
@@ -975,7 +985,7 @@ static void generateXMLForMember(MemberDef *md,FTextStream &ti,FTextStream &t,De
   {
     t << "        <location file=\"" 
       << stripFromPath(md->getDefFileName()) << "\" line=\"" 
-      << md->getDefLine() << "\"" << " column=\"" 
+      << md->getDefLine() << "\" column=\"" 
       << md->getDefColumn() << "\"" ;
     if (md->getStartBodyLine()!=-1)
     {
@@ -986,6 +996,12 @@ static void generateXMLForMember(MemberDef *md,FTextStream &ti,FTextStream &t,De
       }
       t << " bodystart=\"" << md->getStartBodyLine() << "\" bodyend=\"" 
         << md->getEndBodyLine() << "\"";
+    }
+    if (md->getDeclLine()!=-1)
+    {
+      t << " declfile=\"" << stripFromPath(md->getDeclFileName()) << "\" declline=\""
+        << md->getDeclLine() << "\" declcolumn=\""
+        << md->getDeclColumn() << "\"";
     }
     t << "/>" << endl;
   }
@@ -1797,11 +1813,11 @@ static void generateXMLForPage(PageDef *pd,FTextStream &ti,bool isExample)
   if (pd==Doxygen::mainPage) // main page is special
   {
     QCString title;
-    if (!pd->title().isEmpty() && pd->title().lower()!="notitle")
+    if (mainPageHasTitle())
     {
       title = filterTitle(convertCharEntitiesToUTF8(Doxygen::mainPage->title()));
     }
-    else 
+    else
     {
       title = Config_getString(PROJECT_NAME);
     }
@@ -1818,10 +1834,10 @@ static void generateXMLForPage(PageDef *pd,FTextStream &ti,bool isExample)
     }
   }
   writeInnerPages(pd->getSubPages(),t);
-  if (pd->localToc().isXmlEnabled())
+  SectionDict *sectionDict = pd->getSectionDict();
+  if (pd->localToc().isXmlEnabled() && sectionDict)
   {
     t << "    <tableofcontents>" << endl;
-    SectionDict *sectionDict = pd->getSectionDict();
     SDict<SectionInfo>::Iterator li(*sectionDict);
     SectionInfo *si;
     int level=1,l;

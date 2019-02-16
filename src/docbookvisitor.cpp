@@ -353,7 +353,7 @@ DB_VIS_C
     case DocVerbatim::PlantUML:
       {
         static QCString docbookOutput = Config_getString(DOCBOOK_OUTPUT);
-        QCString baseName = writePlantUMLSource(docbookOutput,s->exampleFile(),s->text());
+        QCString baseName = PlantumlManager::instance()->writePlantUMLSource(docbookOutput,s->exampleFile(),s->text(),PlantumlManager::PUML_BITMAP);
         QCString shortName = baseName;
         int i;
         if ((i=shortName.findRev('/'))!=-1)
@@ -767,14 +767,12 @@ DB_VIS_C
       }
       break;
     case DocSimpleSect::User:
+    case DocSimpleSect::Rcs:
+    case DocSimpleSect::Unknown:
       if (s->hasTitle())
         m_t << "<formalpara>" << endl;
       else
         m_t << "<para>" << endl;
-      break;
-    case DocSimpleSect::Rcs:
-    case DocSimpleSect::Unknown:
-      m_t << "<para>" << endl;
       break;
   }
 }
@@ -785,11 +783,9 @@ DB_VIS_C
   if (m_hide) return;
   switch(s->type())
   {
+    case DocSimpleSect::User:
     case DocSimpleSect::Rcs:
     case DocSimpleSect::Unknown:
-      m_t << "</para>" << endl;
-      break;
-    case DocSimpleSect::User:
       if (s->hasTitle())
         m_t << "</formalpara>" << endl;
       else
@@ -1642,7 +1638,7 @@ DB_VIS_C
     shortName=shortName.right(shortName.length()-i-1);
   }
   QCString outDir = Config_getString(DOCBOOK_OUTPUT);
-  generatePlantUMLOutput(baseName,outDir,PUML_BITMAP);
+  PlantumlManager::instance()->generatePlantUMLOutput(baseName,outDir,PlantumlManager::PUML_BITMAP);
   visitPreStart(m_t, s->children(), s->hasCaption(), s->relPath() + shortName + ".png", s->width(),s->height());
   visitCaption(s->children());
   visitPostEnd(m_t, s->hasCaption());

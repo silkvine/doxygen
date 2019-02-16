@@ -180,8 +180,8 @@ class MemberDef : public Definition
     bool isStrongEnumValue() const;
     bool livesInsideEnum() const;
     bool isSliceLocal() const;
+    bool isConstExpr() const;
 
-    int numberOfFlowKeyWords();
     // derived getters
     bool isFriendToHide() const;
     bool isNotFriend() const;
@@ -274,12 +274,13 @@ class MemberDef : public Definition
     QCString fieldType() const;
     bool isReference() const;
 
+    QCString getDeclFileName() const;
+    int getDeclLine() const;
+    int getDeclColumn() const;
 
     //-----------------------------------------------------------------------------------
     // ----  setters -----
     //-----------------------------------------------------------------------------------
-
-    void addFlowKeyWord();
 
     // set functions
     void setMemberType(MemberType t);
@@ -297,7 +298,6 @@ class MemberDef : public Definition
     void setGroupDef(GroupDef *gd,Grouping::GroupPri_t pri,
                      const QCString &fileName,int startLine,bool hasDocs,
                      MemberDef *member=0);
-    void setExplicitExternal(bool b);
     void setReadAccessor(const char *r);
     void setWriteAccessor(const char *w);
     void setTemplateSpecialization(bool b);
@@ -330,7 +330,9 @@ class MemberDef : public Definition
     bool addExample(const char *anchor,const char *name,const char *file);
     
     // prototype related members
-    void setPrototype(bool p);
+    void setPrototype(bool p,const QCString &df,int line, int column);
+    void setExplicitExternal(bool b,const QCString &df,int line,int column);
+    void setDeclFile(const QCString &df,int line,int column);
 
     // argument related members
     void setArgumentList(ArgumentList *al);
@@ -436,8 +438,6 @@ class MemberDef : public Definition
     void _addToSearchIndex();
 
     static int s_indentLevel;
-
-    int number_of_flowkw;
 
     // disable copying of member defs
     MemberDef(const MemberDef &);

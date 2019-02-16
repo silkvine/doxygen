@@ -2473,10 +2473,6 @@ RAWEND    ")"[^ \t\(\)\\]{0,16}\"
 					  BEGIN(FuncCall);
   					}
 <Body>{FLOWCONDITION}/{BN}*"("          {
-                                          if (g_currentMemberDef && g_currentMemberDef->isFunction())
-                                          {
-                                            g_currentMemberDef->addFlowKeyWord();
-                                          }
                                           startFontClass("keywordflow");
                                           codifyLines(yytext);
                                           endFontClass();
@@ -2494,10 +2490,6 @@ RAWEND    ")"[^ \t\(\)\\]{0,16}\"
 					  }
   					}
 <Body>{FLOWCONDITION}/([^a-z_A-Z0-9]) 	{
-                                          if (g_currentMemberDef && g_currentMemberDef->isFunction())
-                                          {
-                                            g_currentMemberDef->addFlowKeyWord();
-                                          }
                                           startFontClass("keywordflow");
                                           codifyLines(yytext);
                                           endFontClass();
@@ -2512,10 +2504,6 @@ RAWEND    ")"[^ \t\(\)\\]{0,16}\"
 					  endFontClass();
   					}
 <Body>{FLOWCONDITION}/{B}*              {
-                                          if (g_currentMemberDef && g_currentMemberDef->isFunction())
-                                          {
-                                            g_currentMemberDef->addFlowKeyWord();
-                                          }
                                           startFontClass("keywordflow");
                                           codifyLines(yytext);
                                           endFontClass();
@@ -3051,10 +3039,6 @@ RAWEND    ")"[^ \t\(\)\\]{0,16}\"
 					  endFontClass();
 					}
 <MemberCall2,FuncCall>{FLOWCONDITION}/([^a-z_A-Z0-9]) {
-                                          if (g_currentMemberDef && g_currentMemberDef->isFunction())
-                                          {
-                                            g_currentMemberDef->addFlowKeyWord();
-                                          }
                                           addParmType();
                                           g_parmName=yytext;
                                           startFontClass("keywordflow");
@@ -3745,7 +3729,6 @@ void parseCCode(CodeOutputInterface &od,const char *className,const QCString &s,
 
   printlex(yy_flex_debug, TRUE, __FILE__, fd ? fd->fileName().data(): NULL);
 
-  TooltipManager::instance()->clearTooltips();
   if (g_codeClassSDict==0)
   {
     resetCCodeParserState();
@@ -3827,10 +3810,6 @@ void parseCCode(CodeOutputInterface &od,const char *className,const QCString &s,
     endFontClass();
     DBG_CTX((stderr,"endCodeLine(%d)\n",g_yyLineNr));
     g_code->endCodeLine();
-  }
-  if (fd)
-  {
-    TooltipManager::instance()->writeTooltips(*g_code);
   }
   if (cleanupSourceDef)
   {
