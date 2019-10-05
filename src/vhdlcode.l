@@ -86,7 +86,7 @@ static int           g_inputPosition;   //!< read offset during parsing
 static int           g_inputLines;      //!< number of line in the code fragment
 static int           g_yyLineNr;        //!< current line number
 static bool          g_needsTermination;
-static Definition   *g_searchCtx;
+static const Definition   *g_searchCtx;
 
 static bool          g_exampleBlock;
 static QCString      g_exampleName;
@@ -112,6 +112,7 @@ static bool writeColoredWord(QCString& word );
 static void generateClassOrGlobalLink(CodeOutputInterface &ol,const char *clName, bool typeOnly=FALSE, const char *curr_class=0);
 static void endFontClass();
 static void startFontClass(const char *s);
+static const char *stateToString(int state);
 //-------------------------------------------------------------------
 
 
@@ -347,7 +348,7 @@ static void writeWord(const char *word,const char* curr_class=0,bool classLink=F
 }// writeWord
 
 
-/*! write a code fragment `text' that may span multiple lines, inserting
+/*! write a code fragment 'text' that may span multiple lines, inserting
  * line numbers for each line.
  */
 static void codifyLines(const char *text,const char *cl=0,bool classlink=FALSE,bool comment=FALSE)
@@ -430,13 +431,13 @@ static void writeMultiLineCodeLink(CodeOutputInterface &ol,
   }
 }
 
-static void setParameterList(MemberDef *md)
+static void setParameterList(const MemberDef *md)
 {
   g_classScope = md->getClassDef() ? md->getClassDef()->name().data() : "";
-  ArgumentList *al = md->argumentList();
+  const ArgumentList *al = md->argumentList();
   if (al==0) return;
   ArgumentListIterator ali(*al);
-  Argument *a;
+  const Argument *a;
   for (ali.toFirst();(a=ali.current());++ali)
   {
     g_parmName = a->name.copy();
@@ -544,7 +545,7 @@ static void generateClassOrGlobalLink(CodeOutputInterface &ol,const char *clName
     Definition *d = cd->getOuterScope();
     if (d && d->definitionType()==Definition::TypeClass)
     {
-      cd = (ClassDef*)d;
+      cd = dynamic_cast<ClassDef*>(d);
     }
     else
     {
@@ -1543,7 +1544,7 @@ void resetVhdlCodeParserState()
 void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString &s, 
                   bool exBlock, const char *exName,FileDef *fd,
                   int startLine,int endLine,bool inlineFragment,
-                  MemberDef *memberDef,bool,Definition *searchCtx,
+                  const MemberDef *memberDef,bool,const Definition *searchCtx,
                   bool /* collectXRefs */)
 {
   //printf("***parseCode() exBlock=%d exName=%s fd=%p\n",exBlock,exName,fd);
@@ -1551,7 +1552,7 @@ void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString 
   printlex(yy_flex_debug, TRUE, __FILE__, fd ? fd->fileName().data(): NULL);
   if (memberDef)
   {
-    ClassDef *dd=memberDef->getClassDef();
+    const ClassDef *dd=memberDef->getClassDef();
     if (dd) g_CurrClass=dd->name();
   }
   resetVhdlCodeParserState();
@@ -1582,7 +1583,7 @@ void parseVhdlCode(CodeOutputInterface &od,const char *className,const QCString 
   if (exBlock && fd==0)
   {
     // create a dummy filedef for the example
-    g_sourceFileDef = new FileDef("",exName);
+    g_sourceFileDef = createFileDef("",exName);
     cleanupSourceDef = TRUE;
   }
   if (g_sourceFileDef) 
@@ -1646,6 +1647,5 @@ extern "C" { // some bogus code to keep the compiler happy
 #error "You seem to be using a version of flex newer than 2.5.4 but older than 2.5.33. These versions do NOT work with doxygen! Please use version <=2.5.4 or >=2.5.33 or expect things to be parsed wrongly!"
 #endif
 
-
-
+#include "vhdlcode.l.h"
 

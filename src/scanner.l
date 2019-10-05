@@ -78,6 +78,7 @@ static int              lastHereDocContext;
 static int              lastDefineContext;
 static int              lastAlignAsContext;
 static int              lastC11AttributeContext;
+static int              lastModifierContext;
 static Protection	protection;
 static Protection	baseProt;
 static int		sharpCount   = 0 ;
@@ -141,6 +142,7 @@ static int              lastCopyArgStringContext;
 static int              lastCopyArgContext;
 static QCString         *copyArgString;
 static QCString         fullArgString;
+static QCString         dummyRawString;
 
 static ArgumentList     *currentArgumentList;
 static char             lastCopyArgChar;
@@ -192,6 +194,7 @@ static int              g_column;
 static int              g_fencedSize=0;
 static bool             g_nestedComment=0;
 
+static const char *stateToString(int state);
 //-----------------------------------------------------------------------------
 
 // forward declarations
@@ -246,7 +249,7 @@ static void initEntry()
   //  //printf("Appending group %s\n",autoGroupStack.top()->groupname.data());
   //  current->groups->append(new Grouping(*autoGroupStack.top()));
   //}
-  initGroupInfo(current);
+  Doxygen::docGroup.initGroupInfo(current);
   isTypedef=FALSE;
 }
 
@@ -613,6 +616,7 @@ PRE       [pP][rR][eE]
 CODE      [cC][oO][dD][eE]
 CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 PHPKW	  ("require"|"require_once"|"include"|"include_once"|"echo")[^a-zA-Z0-9_;]
+PHPUSEKW  ("public"|"private"|"protected")
 IDLATTR   ("["[^\]]*"]"){BN}*
 TYPEDEFPREFIX (("typedef"{BN}+)?)((("volatile"|"const"){BN}+)?)
 RAWBEGIN  (u|U|L|u8)?R\"[^ \t\(\)\\]{0,16}"("
@@ -766,6 +770,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 
  /** Slice states */
 
+%x      SliceOptional
 %x      SliceMetadata
 %x      SliceSequence
 %x      SliceSequenceName
@@ -858,6 +863,12 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  lineCount() ;
                                           BEGIN( FindMembers );
 					}
+<FindMembers>"?>"|"</script>"           { // PHP code end
+					  if (insidePHP)
+					    BEGIN( FindMembersPHP );
+					  else
+					    REJECT;
+                                        }
 <FindMembersPHP>[^\n<]+                 { // Non-PHP code text, ignore
   					}
 <FindMembersPHP>\n                      { // Non-PHP code text, ignore
@@ -865,12 +876,6 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
 <FindMembersPHP>.                       { // Non-PHP code text, ignore
 				        }
-<FindMembers>"?>"|"</script>"           { // PHP code end
-					  if (insidePHP)
-					    BEGIN( FindMembersPHP );
-					  else
-					    REJECT;
-                                        }
 <FindMembers>{PHPKW}			{ if (insidePHP)
 					    BEGIN( NextSemi );
 					  else
@@ -1146,9 +1151,9 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 <ObjCReturnType>")"			{
   					  BEGIN( ObjCMethod );
   					}
-<ObjCParams>({ID})?":"			{ // Keyword of parameter
+<ObjCParams>({ID})?{BN}*":"		{ // Keyword of parameter
 					  QCString keyw = yytext;
-					  keyw=keyw.left(keyw.length()-1); // strip :
+					  keyw=keyw.left(keyw.length()-1).stripWhiteSpace(); // strip :
 					  if (keyw.isEmpty())
 					  {
 					    current->name += " :";
@@ -1390,6 +1395,10 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  current->explicitExternal = TRUE;
 					  lineCount();
   					}
+<FindMembers>{B}*"const"{BN}+    	{ current->type += " const ";
+					  if (insideCS) current->stat = TRUE;
+					  lineCount();
+					}
 <FindMembers>{B}*"virtual"{BN}+    	{ current->type += " virtual ";
 					  current->virt = Virtual;
 					  lineCount();
@@ -2006,11 +2015,16 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 <PHPUseAs>{BN}+"as"{BN}+		{
   					  lineCount();
   					}
+<PHPUseAs>{PHPUSEKW}                    {
+                                        }
 <PHPUseAs>{ID}				{
   					  //printf("PHP: adding use as relation: %s->%s\n",yytext,aliasName.data());
-                                          Doxygen::namespaceAliasDict.insert(yytext,
-					       new QCString(removeRedundantWhiteSpace(
-						   substitute(aliasName,"\\","::"))));
+                                          if (!aliasName.isEmpty())
+                                          {
+                                            Doxygen::namespaceAliasDict.insert(yytext,
+					         new QCString(removeRedundantWhiteSpace(
+					  	   substitute(aliasName,"\\","::"))));
+                                          }
 					  aliasName.resize(0);
   					}
 <PHPUse,PHPUseAs>[,;]			{
@@ -2310,6 +2324,9 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 <CopyHereDocEnd>\n			{ 
                                           *pCopyHereDocGString += yytext;
                                         }
+<CopyHereDocEnd>{ID}			{ 
+                                          *pCopyHereDocGString += yytext;
+                                        }
 <CopyHereDocEnd>.			{ 
                                           *pCopyHereDocGString += yytext;
                                         }
@@ -2434,6 +2451,19 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             // C++11 decltype(x)
 					    current->type+=yytext;
                                             BEGIN(DeclType);
+                                          }
+                                          else if (insideSlice && qstrcmp(yytext,"optional")==0)
+                                          {
+                                            if (current->type.isEmpty())
+                                            {
+                                              current->type = "optional";
+                                            }
+                                            else
+                                            {
+                                              current->type += " optional";
+                                            }
+                                            lastModifierContext = YY_START;
+                                            BEGIN(SliceOptional);
                                           }
 					  else
 					  {
@@ -2655,7 +2685,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
   */
 <Define>{ID}				{
-  					  //printf("Define `%s' without args\n",yytext);
+  					  //printf("Define '%s' without args\n",yytext);
                                           if (insideCpp || insideObjC) 
                                           {
                                             current->id = ClangParser::instance()->lookup(yyLineNr,yytext);
@@ -2830,17 +2860,17 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  }
   					}
    
-<FindMembers,FindFields>("//"([!/]?){B}*{CMD}"{")|("/*"([!*]?){B}*{CMD}"{")	{
+<FindMembers,FindFields>("//"([!/]){B}*{CMD}"{")|("/*"([!*]){B}*{CMD}"{")	{
   					  //handleGroupStartCommand(current->name);
                                           if (previous && previous->section==Entry::GROUPDOC_SEC)
 					  {
 					    // link open command to the group defined in the previous entry
-					    openGroup(previous,yyFileName,yyLineNr);
+					    Doxygen::docGroup.open(previous,yyFileName,yyLineNr);
 					  }
 					  else
 					  {
 					    // link open command to the current entry
-					    openGroup(current,yyFileName,yyLineNr);
+					    Doxygen::docGroup.open(current,yyFileName,yyLineNr);
 					  }
 					  //current = tmp;
 					  initEntry();
@@ -2882,9 +2912,9 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    }
 					  }
   					}
-<FindMembers,FindFields,ReadInitializer>"//"([!/]?){B}*{CMD}"}".*|"/*"([!*]?){B}*{CMD}"}"[^*]*"*/"	{
+<FindMembers,FindFields,ReadInitializer>"//"([!/]){B}*{CMD}"}".*|"/*"([!*]){B}*{CMD}"}"[^*]*"*/"	{
                                           bool insideEnum = YY_START==FindFields || (YY_START==ReadInitializer && lastInitializerContext==FindFields); // see bug746226
-  					  closeGroup(current,yyFileName,yyLineNr,insideEnum);
+  					  Doxygen::docGroup.close(current,yyFileName,yyLineNr,insideEnum);
   					}
 <FindMembers>"="			{ // in PHP code this could also be due to "<?="
   					  current->bodyLine = yyLineNr;
@@ -2926,7 +2956,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					  BEGIN(GCopyCurly);
   					}
 <ReadInitializer>[;,]			{
-  					  //printf(">> initializer `%s' <<\n",current->initializer.data());
+  					  //printf(">> initializer '%s' <<\n",current->initializer.data());
                                           if (*yytext==';' && (current_root->spec&Entry::Enum))
 					  {
 					    current->fileName   = yyFileName;
@@ -3589,6 +3619,20 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             BEGIN (lastSquareContext);
                                           }
                                         }
+<SliceOptional>"("                      {
+                                          current->type += "(";
+                                          roundCount++;
+                                        }
+<SliceOptional>[0-9]+                   {
+                                          current->type += yytext;
+                                        }
+<SliceOptional>")"                      {
+                                          current->type += ")";
+                                          if(--roundCount<=0)
+                                          {
+                                            BEGIN (lastModifierContext);
+                                          }
+                                        }
 <IDLAttribute>"]"			{
   					  // end of IDL function attribute
 					  if (--squareCount<=0)
@@ -3820,7 +3864,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                         }
 <SkipRemainder>[^\n]*
 <FindFields>","				{
-					  //printf("adding `%s' `%s' `%s' to enum `%s' (mGrpId=%d)\n",
+					  //printf("adding '%s' '%s' '%s' to enum '%s' (mGrpId=%d)\n",
 					  //     current->type.data(), current->name.data(),
 					  //     current->args.data(), current_root->name.data(),current->mGrpId);
   					  if (!current->name.isEmpty())
@@ -3941,6 +3985,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  else
 					  {
 					    current->endBodyLine = yyLineNr;
+                        Entry * original_root = current_root; // save root this namespace is in
                                             if (current->section == Entry::NAMESPACE_SEC && current->type == "namespace")
                                             {
                                               int split_point;
@@ -3965,7 +4010,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             }
 					    QCString &cn = current->name;
 					    QCString rn = current_root->name.copy();
-					    //printf("cn=`%s' rn=`%s' isTypedef=%d\n",cn.data(),rn.data(),isTypedef);
+					    //printf("cn='%s' rn='%s' isTypedef=%d\n",cn.data(),rn.data(),isTypedef);
 					    if (!cn.isEmpty() && !rn.isEmpty())
 					    {
 					      prependScope();
@@ -3986,7 +4031,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					                // was: current->args.simplifyWhiteSpace();
   					      current->type = current->type.simplifyWhiteSpace();
   					      current->name = current->name.stripWhiteSpace();
-					      //printf("adding `%s' `%s' `%s' brief=%s insideObjC=%d %x\n",current->type.data(),current->name.data(),current->args.data(),current->brief.data(),insideObjC,current->section);
+					      //printf("adding '%s' '%s' '%s' brief=%s insideObjC=%d %x\n",current->type.data(),current->name.data(),current->args.data(),current->brief.data(),insideObjC,current->section);
 					      if (insideObjC && 
 						  ((current->spec&Entry::Interface) || (current->spec==Entry::Category))
 						 ) // method definition follows
@@ -4005,6 +4050,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 						   )
 						{ // namespaces and interfaces and java classes ends with a closing bracket without semicolon
 						  current->reset();
+                          current_root = original_root; // restore scope from before namespace descent
 						  initEntry();
 						  memspecEntry = 0;
 						  BEGIN( FindMembers ) ;
@@ -4131,7 +4177,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  { 
 					    // see if the compound does not have a name or is inside another
 					    // anonymous compound. If so we insert a 
-					    // special `anonymous' variable.
+					    // special 'anonymous' variable.
 					    //Entry *p=current_root;
 					    Entry *p=current;
 					    while (p)
@@ -4139,7 +4185,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					      // only look for class scopes, not namespace scopes
 					      if ((p->section & Entry::COMPOUND_MASK) && !p->name.isEmpty())
 					      {
-						//printf("Trying scope `%s'\n",p->name.data());
+						//printf("Trying scope '%s'\n",p->name.data());
 						int i=p->name.findRev("::");
 						int pi = (i==-1) ? 0 : i+2;
 						if (p->name.at(pi)=='@')
@@ -4224,7 +4270,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 						}
 					      }
 
-					      //printf("Add: type=`%s',name=`%s',args=`%s' brief=%s doc=%s\n",
+					      //printf("Add: type='%s',name='%s',args='%s' brief=%s doc=%s\n",
 					      //      varEntry->type.data(),varEntry->name.data(),
 					      //      varEntry->args.data(),varEntry->brief.data(),varEntry->doc.data());
 					      current_root->addSubEntry(varEntry);
@@ -4326,7 +4372,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  }
   					}
 <FuncPtr>.				{
-  					  //printf("error: FuncPtr `%c' unexpected at line %d of %s\n",*yytext,yyLineNr,yyFileName);
+  					  //printf("error: FuncPtr '%c' unexpected at line %d of %s\n",*yytext,yyLineNr,yyFileName);
   					}
 <FuncPtrOperator>"("{BN}*")"{BN}*/"("	{
   					  current->name += yytext;
@@ -4580,7 +4626,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  BEGIN( SkipCxxComment );
   					}
   */
-	/* `)' followed by a special comment */
+	/* ')' followed by a special comment */
 <ReadFuncArgType>")"{BN}*("/*"[*!]|"//"[/!])"<"	{
   					  lineCount();
                                           if (currentArgumentContext==DefineEnd)
@@ -4625,7 +4671,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    unput(lastCopyArgChar);
 					  BEGIN( lastCommentInArgContext );
   					}
-<CopyArgCommentLine>{CMD}("verbatim"|"latexonly"|"htmlonly"|"xmlonly"|"manonly"|"dot"|"code")/[^a-z_A-Z0-9]	{ // verbatim command (which could contain nested comments!)
+<CopyArgCommentLine>{CMD}("verbatim"|"latexonly"|"htmlonly"|"xmlonly"|"manonly"|"dot"|"code")/[^a-z_A-Z0-9\-]	{ // verbatim command (which could contain nested comments!)
 				          docBlockName=&yytext[1];
   					  fullArgString+=yytext;
 					  BEGIN(CopyArgVerbatim);
@@ -4643,7 +4689,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					  fullArgString+=yytext;
   					  BEGIN(CopyArgVerbatim);
                                         }
-<CopyArgVerbatim>[\\@]("endverbatim"|"endlatexonly"|"endhtmlonly"|"endxmlonly"|"enddocbookonly"|"endmanonly"|"enddot"|"endcode"|"f$"|"f]"|"f}")/[^a-z_A-Z0-9] { // end of verbatim block
+<CopyArgVerbatim>[\\@]("endverbatim"|"endlatexonly"|"endhtmlonly"|"endxmlonly"|"enddocbookonly"|"endmanonly"|"enddot"|"endcode"|"f$"|"f]"|"f}")/[^a-z_A-Z0-9\-] { // end of verbatim block
   					  fullArgString+=yytext;
 				          if (yytext[1]=='f') // end of formula
 				          {
@@ -5111,7 +5157,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    if (!current->type.isEmpty() &&
 						(!isFunction || current->type.left(8)=="typedef "))
 					    {
-					      //printf("Scanner.l: found in class variable: `%s' `%s' `%s'\n", current->type.data(),current->name.data(),current->args.data());
+					      //printf("Scanner.l: found in class variable: '%s' '%s' '%s'\n", current->type.data(),current->name.data(),current->args.data());
 					      if (isTypedef && current->type.left(8)!="typedef ")
 					      {
 						current->type.prepend("typedef ");
@@ -5120,14 +5166,14 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    }
 					    else	      
 					    {
-					      //printf("Scanner.l: found in class function: `%s' `%s' `%s'\n", current->type.data(),current->name.data(),current->args.data());
+					      //printf("Scanner.l: found in class function: '%s' '%s' '%s'\n", current->type.data(),current->name.data(),current->args.data());
 					      current->section = Entry::FUNCTION_SEC ;
 			                      current->proto = *yytext==';';
 					    }
 					  }
 					  else // a global function prototype or function variable
 					  {
-					    //printf("Scanner.l: prototype? type=`%s' name=`%s' args=`%s'\n",current->type.data(),current->name.data(),current->args.data());
+					    //printf("Scanner.l: prototype? type='%s' name='%s' args='%s'\n",current->type.data(),current->name.data(),current->args.data());
 					    if (!current->type.isEmpty() && 
 						(current->type.find(re,0)!=-1 || current->type.left(8)=="typedef "))
 					    {
@@ -5145,7 +5191,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					      current->proto = TRUE;
 					    }
 					  }
-					  //printf("Adding entry `%s'\n",current->name.data());
+					  //printf("Adding entry '%s'\n",current->name.data());
 					  if ( insidePHP)
 					  {
 					    if (findAndRemoveWord(current->type,"final"))
@@ -5342,7 +5388,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                           lineCount();
   				          //addToBody(yytext);
   					}
-<SkipCurly,SkipCurlyCpp>"<<<"	        {
+<SkipCurly,SkipCurlyCpp,ReadInitializer>"<<<"	        {
   					  if (!insidePHP) 
 					  {
 					    REJECT;
@@ -5353,6 +5399,16 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    BEGIN(HereDoc);
 					  }
   					}
+<SkipCurly,SkipCurlyCpp>{B}*{RAWBEGIN}  {
+                                          QCString raw=QCString(yytext).stripWhiteSpace();
+                                          g_delimiter = raw.data()+2;
+                                          g_delimiter=g_delimiter.left(g_delimiter.length()-1);
+                                          lastRawStringContext = YY_START;
+                                          dummyRawString.resize(0);
+                                          pCopyRawString = &dummyRawString;
+                                          *pCopyRawString+=yytext;
+                                          BEGIN(RawString);
+                                        }
 <SkipCurly,SkipCurlyCpp>[^\n#"'@\\/{}<]+ {
                                           lineCount();  // for g_column updates
   				          //addToBody(yytext);
@@ -5553,7 +5609,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             current->name=current->name.left(current->name.length()-1).stripWhiteSpace();
                                             //printf("template class declaration for %s!\n",current->name.data());
 					    QCString rn = current_root->name.copy();
-					    //printf("cn=`%s' rn=`%s' isTypedef=%d\n",cn.data(),rn.data(),isTypedef);
+					    //printf("cn='%s' rn='%s' isTypedef=%d\n",cn.data(),rn.data(),isTypedef);
 					    if (!current->name.isEmpty() && !rn.isEmpty())
 					    {
 					      prependScope();
@@ -6252,6 +6308,43 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  startCommentBlock(FALSE);
 					  BEGIN( DocBlock );
 					}
+<FindMembers,FindFields,MemberSpec,FuncQual,SkipCurly,Operator,ClassVar,SkipInits,Bases,OldStyleArgs>"/**"[*]+{BL} {
+
+					  static bool javadocBanner = Config_getBool(JAVADOC_BANNER);
+
+					  if( javadocBanner ) {
+						  lastDocContext = YY_START;
+
+						  //printf("Found comment banner at %s:%d\n",yyFileName,yyLineNr);
+						  if (current_root->section & Entry::SCOPE_MASK)
+	                                          {
+						    current->inside = current_root->name+"::";
+	                                          }
+						  current->docLine = yyLineNr;
+						  current->docFile = yyFileName;
+						  docBlockContext = YY_START;
+						  docBlockInBody  = YY_START==SkipCurly;
+	                                          static bool javadocAutoBrief = Config_getBool(JAVADOC_AUTOBRIEF);
+						  docBlockAutoBrief = javadocAutoBrief;
+
+	                                          QCString indent;
+	                                          indent.fill(' ',computeIndent(yytext,g_column));
+	                                          docBlock=indent;
+
+						  if (docBlockAutoBrief)
+						  {
+						    current->briefLine = yyLineNr;
+						    current->briefFile = yyFileName;
+						  }
+						  startCommentBlock(FALSE);
+						  BEGIN( DocBlock );
+					  } else {
+						  current->program += yytext ;
+						  lastContext = YY_START ;
+						  BEGIN( Comment ) ;
+					  }
+
+					}
 <FindMembers,FindFields,MemberSpec,FuncQual,SkipCurly,Operator,ClassVar,SkipInits,Bases,OldStyleArgs>("//"{B}*)?"/**"/[^/*] {
   					  removeSlashes=(yytext[1]=='/');
 					  lastDocContext = YY_START;
@@ -6563,7 +6656,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                           g_nestedComment=FALSE;
   					  BEGIN(DocCopyBlock);
   					}
-<DocBlock>{CMD}("verbatim"|"latexonly"|"htmlonly"|"xmlonly"|"manonly"|"dot"|"code")/[^a-z_A-Z0-9]	{ // verbatim command (which could contain nested comments!)
+<DocBlock>{CMD}("verbatim"|"latexonly"|"htmlonly"|"xmlonly"|"manonly"|"dot"|"code")/[^a-z_A-Z0-9\-]	{ // verbatim command (which could contain nested comments!)
                                           docBlock+=yytext;
 				          docBlockName=&yytext[1];
                                           g_fencedSize=0;
@@ -6732,7 +6825,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
 <DocCopyBlock><<EOF>>			{
   					  warn(yyFileName,yyLineNr,
-					      "reached end of file while inside a %s block!\n"
+					      "reached end of file while inside a '%s' block!\n"
 					      "The command that should end the block seems to be missing!\n",
 					      docBlockName.data());
   					  yyterminate();
@@ -6810,7 +6903,6 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
 
 
-  /* ------------ Generic rules -------------- */
 
 
 <SkipCxxComment>.*"\\\n"		{  // line continuation
@@ -6827,6 +6919,8 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  BEGIN( lastCContext ) ;
 					}
 <SkipComment>[^\*\n]+
+
+  /* ------------ Generic rules -------------- */
 
 <*>"[["                                 { // C++11 attribute
                                           if (!insideCpp) REJECT;
@@ -6987,6 +7081,7 @@ static void handleParametersCommentBlocks(ArgumentList *al)
     //printf("    Param %s docs=%s\n",a->name.data(),a->docs.data());
     if (!a->docs.isEmpty())
     {
+      if  (!a->name && a->type == "...") a->name= "...";
       int position=0;
       bool needsEntry;
 
@@ -7134,13 +7229,13 @@ static void parseCompounds(Entry *rt)
       //memberGroupId = DOX_NOGROUP;
       //memberGroupRelates.resize(0);
       //memberGroupInside.resize(0);
-      groupEnterCompound(yyFileName,yyLineNr,ce->name);
+      Doxygen::docGroup.enterCompound(yyFileName,yyLineNr,ce->name);
       
       scannerYYlex() ;
       g_lexInit=TRUE;
       //forceEndGroup();
 
-      groupLeaveCompound(yyFileName,yyLineNr,ce->name);
+      Doxygen::docGroup.leaveCompound(yyFileName,yyLineNr,ce->name);
       
       delete current; current=0;
       ce->program.resize(0);
@@ -7200,7 +7295,7 @@ static void parseMain(const char *fileName,
 
     current_root  = rt ;
     initParser();
-    groupEnterFile(yyFileName,yyLineNr);
+    Doxygen::docGroup.enterFile(yyFileName,yyLineNr);
     current       = new Entry;
     //printf("current=%p current_root=%p\n",current,current_root);
     int sec=guessSection(yyFileName);
@@ -7232,7 +7327,7 @@ static void parseMain(const char *fileName,
     }
 
     //forceEndGroup();
-    groupLeaveFile(yyFileName,yyLineNr);
+    Doxygen::docGroup.leaveFile(yyFileName,yyLineNr);
 
     //if (depthIf>0)
     //{
@@ -7367,9 +7462,9 @@ void CLanguageScanner::parseCode(CodeOutputInterface & codeOutIntf,
                    int startLine,
                    int endLine,
                    bool inlineFragment,
-		   MemberDef *memberDef,
+		   const MemberDef *memberDef,
 		   bool showLineNumbers,
-                   Definition *searchCtx,
+                   const Definition *searchCtx,
                    bool collectXRefs
                   )
 {
@@ -7384,7 +7479,7 @@ bool CLanguageScanner::needsPreprocessing(const QCString &extension)
   SrcLangExt lang = getLanguageFromFileName(extension);
   return (SrcLangExt_Cpp == lang) ||
    !( fe==".java" || fe==".as"  || fe==".d"    || fe==".php" || 
-      fe==".php4" || fe==".inc" || fe==".phtml" 
+      fe==".php4" || fe==".inc" || fe==".phtml"|| fe==".php5"
     );
 }
 
@@ -7407,3 +7502,4 @@ extern "C" { // some bogus code to keep the compiler happy
 }
 #endif
 
+#include "scanner.l.h"

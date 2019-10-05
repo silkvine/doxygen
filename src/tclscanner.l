@@ -59,6 +59,8 @@
 
 #define MAX_INCLUDE_DEPTH 10
 
+static const char *stateToString(int state);
+
 //! Application error.
 #define tcl_err \
   printf("Error %d %s() at line %d! ",__LINE__,tcl.file_name.data(),yylineno); \
@@ -423,7 +425,7 @@ static struct
   int code_linenumbers; // if true create line numbers in code
   const char *code_font; // used font to codify
   bool config_autobrief; // value of configuration option
-  QMap<QString,QString> config_subst; // map of configuration option values
+  QMap<QCString,QCString> config_subst; // map of configuration option values
   QCString input_string; // file contents
   int input_position; // position in file
   QCString file_name; // name of used file
@@ -456,13 +458,13 @@ static struct
   QAsciiDict<Entry> fn; // all read function entries
   QList<Entry> entry; // list of all created entries, will be deleted after codifying
   Protection protection; // current protections state
-  MemberDef *memberdef; // contain current MemberDef when codifying
+  const MemberDef *memberdef; // contain current MemberDef when codifying
   bool collectXRefs;
 } tcl;
 
 // scanner functions
 static int yyread(char *buf,int max_size);
-static tcl_scan *tcl_scan_start(char type, QString content, QCString ns, Entry *entry_cls, Entry *entry_fn);
+static tcl_scan *tcl_scan_start(char type, QCString content, QCString ns, Entry *entry_cls, Entry *entry_fn);
 static void tcl_scan_end();
 static void tcl_comment(int what,const char *text);
 static void tcl_word(int what,const char *text);
@@ -486,7 +488,7 @@ Entry* tcl_entry_new()
 //  myEntry->stat       = FALSE;
   myEntry->fileName   = tcl.file_name;
   myEntry->lang       = SrcLangExt_Tcl;
-  initGroupInfo(myEntry);
+  Doxygen::docGroup.initGroupInfo(myEntry);
   // collect entries
   if (!tcl.code)
   {
@@ -727,7 +729,7 @@ static void tcl_codify(const char *s,const char *str)
 }
 
 //! Codify 'str' with special font class 's'.
-static void tcl_codify(const char *s,const QString &str)
+static void tcl_codify(const char *s,const QCString &str)
 {
   if (tcl.code==NULL) return;
   tcl_codify(s,str);
@@ -1049,7 +1051,7 @@ D
   tcl.string_commentcodify = "";
   tcl.string_commentline = "";
   tcl.line_body1=yylineno;
-  tcl_command(-1,"");
+  tcl_command(-1,yytext);
 }
 <COMMAND>{ws}*; {
 D
@@ -1133,10 +1135,10 @@ D
 
 //! Start new scan context for given 'content'.
 // @return created new scan context.
-static tcl_scan *tcl_scan_start(char type, QString content, QCString ns, Entry *entry_cl, Entry *entry_fn)
+static tcl_scan *tcl_scan_start(char type, QCString content, QCString ns, Entry *entry_cl, Entry *entry_fn)
 {
   tcl_scan *myScan=tcl.scan.at(0);
-tcl_inf("line=%d type=%d '%s'\n",tcl.line_body0,type,content.ascii());
+tcl_inf("line=%d type=%d '%s'\n",tcl.line_body0,type,content.data());
 
   myScan->line1=yylineno;
   yy_push_state(TOP);
@@ -1165,7 +1167,7 @@ tcl_inf("line=%d type=%d '%s'\n",tcl.line_body0,type,content.ascii());
   myScan->entry_cl = entry_cl;
   myScan->entry_fn = entry_fn;
   myScan->entry_scan = tcl.entry_current;
-  myScan->buffer_state=yy_scan_string(content.ascii());
+  myScan->buffer_state=yy_scan_string(content.data());
   myScan->line0=tcl.line_body0;
   myScan->line1=tcl.line_body1;
   myScan->after.clear();
@@ -1722,7 +1724,7 @@ static void tcl_codify_link(QCString name)
     if (tcl.memberdef)
     {
         myDef->addSourceReferencedBy(tcl.memberdef);
-        tcl.memberdef->addSourceReferences(myDef);
+        //tcl.memberdef->addSourceReferences(myDef);
     } else {
       Entry* callerEntry;
       unsigned int i;
@@ -2274,21 +2276,22 @@ D
 }
 
 //! Handle \c namespace statements.
-static void tcl_command_NAMESPACE()
+static bool tcl_command_NAMESPACE()
 {
 D
   QCString myNs, myName, myStr;
   //Entry *myEntryNs=NULL;
   tcl_scan *myScan = tcl.scan.at(0);
 
+  tcl_name(myScan->ns,(*tcl.list_commandwords.at(4)),myNs,myName);
+  if (myName.isEmpty()) return false; // not a namespace
   tcl_codify_cmd("keyword",0);
   tcl_codify_cmd(NULL,1);
   tcl_codify_cmd("keyword",2);
   tcl_codify_cmd(NULL,3);
   tcl_codify_cmd(NULL,4);
   tcl_codify_cmd(NULL,5);
-  tcl_name(myScan->ns,(*tcl.list_commandwords.at(4)),myNs,myName);
-  if (myNs.length())
+  if (!myNs.isEmpty())
   {
     myName = myNs+"::"+myName;
   }
@@ -2310,6 +2313,7 @@ D
     tcl.word_is=' ';
   }
   myScan = tcl_scan_start(tcl.word_is,myStr, myName, NULL, NULL);
+  return true;
 }
 
 //! Handle \c itcl::class statements.
@@ -2558,7 +2562,7 @@ tcl_inf("->\n");
   if (myStr.left(2)=="::") myStr = myStr.mid(2);
   if (tcl.config_subst.contains(myStr))
   {
-    myStr=tcl.config_subst[myStr].utf8();
+    myStr=tcl.config_subst[myStr];
   }
   if (myStr=="private")
   {
@@ -2594,7 +2598,7 @@ tcl_inf("->\n");
     if (myStr.left(2)=="::") myStr = myStr.mid(2);
     if (tcl.config_subst.contains(myStr))
     {
-      myStr=tcl.config_subst[myStr].utf8();
+      myStr=tcl.config_subst[myStr];
     }
   }
   if (myStr=="proc")
@@ -2636,11 +2640,16 @@ tcl_inf("->\n");
     if ((*tcl.list_commandwords.at(2))=="eval")
     {
       if (tcl.list_commandwords.count() < 7) {myLine=__LINE__;goto command_warn;}
-      tcl_command_NAMESPACE();
+      if (tcl_command_NAMESPACE())
+      {
+        goto command_end;
+      }
+    }
+    else
+    {
+      tcl_command_OTHER();
       goto command_end;
     }
-    tcl_command_OTHER();
-    goto command_end;
   }
   if (myStr=="itcl::class")
   {
@@ -2950,7 +2959,7 @@ tcl_inf("%s\n",fileName);
   printlex(yy_flex_debug, TRUE, __FILE__, fileName);
 
   msg("Parsing %s...\n",fileName);
-  groupEnterFile(fileName,yylineno);
+  Doxygen::docGroup.enterFile(fileName,yylineno);
 
   tcl_init();
   tcl.code = NULL;
@@ -2958,7 +2967,7 @@ tcl_inf("%s\n",fileName);
   tcl.this_parser = this;
   tcl.entry_main          = root; /* toplevel entry */
   tcl_parse("","");
-  groupLeaveFile(tcl.file_name,yylineno);
+  Doxygen::docGroup.leaveFile(tcl.file_name,yylineno);
   root->program.resize(0);
   myFile.close();
   printlex(yy_flex_debug, FALSE, __FILE__, fileName);
@@ -2975,9 +2984,9 @@ void TclLanguageScanner::parseCode(CodeOutputInterface & codeOutIntf,
                    int startLine,
                    int endLine,
                    bool inlineFragment,
-                   MemberDef *memberDef,
+                   const MemberDef *memberDef,
                    bool showLineNumbers,
-                   Definition *searchCtx,
+                   const Definition *searchCtx,
                    bool collectXRefs
                   )
 {
@@ -3009,7 +3018,7 @@ void TclLanguageScanner::parseCode(CodeOutputInterface & codeOutIntf,
     }
   }
 
-  QString myStr="Codifying..";
+  QCString myStr="Codifying..";
   if (scopeName)
   {
     myStr +=" scope=";
@@ -3032,7 +3041,7 @@ void TclLanguageScanner::parseCode(CodeOutputInterface & codeOutIntf,
     myStr+=" file=";
     myStr+=fileDef->fileName();
   }
-tcl_inf("%s (%d,%d) %d %d\n",myStr.ascii(),startLine,endLine,isExampleBlock,inlineFragment);
+tcl_inf("%s (%d,%d) %d %d\n",myStr.data(),startLine,endLine,isExampleBlock,inlineFragment);
 //tcl_inf("%s\n"input.data());
   tcl_init();
   tcl.collectXRefs = collectXRefs;
@@ -3114,3 +3123,4 @@ extern "C" { // some bogus code to keep the compiler happy
 }
 #endif
 
+#include "tclscanner.l.h"

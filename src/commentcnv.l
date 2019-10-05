@@ -94,6 +94,8 @@ static bool     g_vhdl; // for VHDL old style --! comment
 static SrcLangExt g_lang;
 static bool       isFixedForm; // For Fortran
 
+static const char *stateToString(int state);
+
 static void replaceCommentMarker(const char *s,int len)
 {
   const char *p=s;
@@ -266,7 +268,7 @@ void replaceComment(int offset);
 				     else
 				     {
                                        g_pythonDocString = TRUE;
-                                       g_nestingCount=0;
+                                       g_nestingCount=1;
                                        g_commentStack.clear(); /*  to be on the save side */
                                        copyToOutput(yytext,(int)yyleng);
 				       BEGIN(CComment);
@@ -281,7 +283,7 @@ void replaceComment(int offset);
 				     else
 				     {
                                        copyToOutput(yytext,(int)yyleng); 
-                                       g_nestingCount=0;
+                                       g_nestingCount=0; // Fortran doesn't have an end comment
                                        g_commentStack.clear(); /*  to be on the save side */
 				       BEGIN(CComment);
                                        g_commentStack.push(new CommentCtx(g_lineNr));
@@ -298,7 +300,7 @@ void replaceComment(int offset);
                                        if (isFixedForm && (g_col == 0))
                                        {
                                          copyToOutput(yytext,(int)yyleng); 
-                                         g_nestingCount=0;
+                                         g_nestingCount=0; // Fortran doesn't have an end comment
                                          g_commentStack.clear(); /* to be on the safe side */
 				         BEGIN(CComment);
                                          g_commentStack.push(new CommentCtx(g_lineNr));
@@ -399,8 +401,12 @@ void replaceComment(int offset);
                                      copyToOutput(yytext,(int)yyleng);
                                    }
 <Scan>"/*"[*!]?			   { /* start of a C comment */
+                                     if ((g_lang==SrcLangExt_Python) || (g_lang==SrcLangExt_Tcl))
+				     {
+				       REJECT;
+                                     }
   			             g_specialComment=(int)yyleng==3;
-                                     g_nestingCount=0;
+                                     g_nestingCount=1;
                                      g_commentStack.clear(); /*  to be on the save side */
                                      copyToOutput(yytext,(int)yyleng); 
 				     BEGIN(CComment); 
@@ -414,7 +420,7 @@ void replaceComment(int offset);
 				     else
 				     {
                                        copyToOutput(yytext,(int)yyleng); 
-                                       g_nestingCount=0;
+                                       g_nestingCount=0; // Python doesn't have an end comment for #
                                        g_commentStack.clear(); /*  to be on the save side */
 				       BEGIN(CComment);
                                        g_commentStack.push(new CommentCtx(g_lineNr));
@@ -429,7 +435,7 @@ void replaceComment(int offset);
 				     {
                                        g_vhdl = TRUE;
                                        copyToOutput(yytext,(int)yyleng); 
-                                       g_nestingCount=0;
+                                       g_nestingCount=0;  // VHDL doesn't have an end comment
                                        g_commentStack.clear(); /*  to be on the save side */
 				       BEGIN(CComment);
                                        g_commentStack.push(new CommentCtx(g_lineNr));
@@ -443,7 +449,7 @@ void replaceComment(int offset);
 				     else
 				     {
                                        copyToOutput(yytext,(int)yyleng); 
-                                       g_nestingCount=0;
+                                       g_nestingCount=0;  // Fortran doesn't have an end comment
                                        g_commentStack.clear(); /*  to be on the save side */
 				       BEGIN(CComment);
                                        g_commentStack.push(new CommentCtx(g_lineNr));
@@ -646,6 +652,7 @@ void replaceComment(int offset);
 				     }
 				     else
 				     {
+                                       g_nestingCount--;
                                        g_pythonDocString = FALSE;
 				       copyToOutput(yytext,(int)yyleng);
 				       BEGIN(Scan);
@@ -660,25 +667,30 @@ void replaceComment(int offset);
 				     }
                                    }
 <CComment>"/"+"*"                  { /* nested C comment */
+                                     if ((g_lang==SrcLangExt_Python) || (g_lang==SrcLangExt_Tcl))
+				     {
+				       REJECT;
+                                     }
                                      g_nestingCount++;
                                      g_commentStack.push(new CommentCtx(g_lineNr));
                                      copyToOutput(yytext,(int)yyleng); 
                                    }
 <CComment>"*"+"/"                  { /* end of C comment */
-                                     if (g_lang==SrcLangExt_Python)
+                                     if ((g_lang==SrcLangExt_Python) || (g_lang==SrcLangExt_Tcl))
 				     {
 				       REJECT;
 				     }
 				     else
 				     {
 				       copyToOutput(yytext,(int)yyleng);
+                                       g_nestingCount--;
                                        if (g_nestingCount<=0)
                                        {
 				         BEGIN(Scan);
                                        }
                                        else
                                        {
-                                         g_nestingCount--;
+                                         //g_nestingCount--;
                                          delete g_commentStack.pop();
                                        }
 				     }
@@ -829,10 +841,19 @@ void replaceComment(int offset);
 				     g_inRoseComment=FALSE;
 				     BEGIN(Scan); 
                                    }
-<ReadLine>[^\\@\n]*/\n		   {
-  				     copyToOutput(yytext,(int)yyleng);
-                                     BEGIN(g_readLineCtx);
-  				   }
+<ReadLine>"*/"                     {
+				     copyToOutput("*&zwj;/",7);
+				   }
+<ReadLine>"*"                      {
+				     copyToOutput(yytext,(int)yyleng);
+				   }
+<ReadLine>[^\\@\n\*]*              {
+				     copyToOutput(yytext,(int)yyleng);
+				   }
+<ReadLine>[^\\@\n\*]*/\n           {
+				     copyToOutput(yytext,(int)yyleng);
+				     BEGIN(g_readLineCtx);
+				   }
 <CComment,ReadLine>[\\@][\\@][~a-z_A-Z][a-z_A-Z0-9]*[ \t]* { // escaped command
 				     copyToOutput(yytext,(int)yyleng);
   				   }
@@ -895,7 +916,9 @@ void replaceComment(int offset);
     			             {
 				       //printf("** Adding terminator for comment!\n");
 				       if (g_lang!=SrcLangExt_Python &&
-					   g_lang!=SrcLangExt_VHDL)
+					   g_lang!=SrcLangExt_VHDL &&
+					   g_lang!=SrcLangExt_Markdown &&
+					   g_lang!=SrcLangExt_Fortran)
 				       {
  				         ADDCHAR('*');
      				         ADDCHAR('/');
@@ -1102,7 +1125,7 @@ void convertCppComments(BufStr *inBuf,BufStr *outBuf,const char *fileName)
     }
     tmp += ")";
     warn(g_fileName,g_lineNr,"Reached end of file while still inside a (nested) comment. "
-        "Nesting level %d %s",g_nestingCount+1,tmp.data()); // add one for "normal" expected end of comment
+        "Nesting level %d %s",g_nestingCount,tmp.data());
   }
   g_commentStack.clear();
   g_nestingCount = 0;
@@ -1124,3 +1147,4 @@ extern "C" { // some bogus code to keep the compiler happy
 }
 #endif
 
+#include "commentcnv.l.h"

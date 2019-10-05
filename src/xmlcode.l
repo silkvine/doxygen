@@ -35,6 +35,7 @@
 #include "config.h"
 #include "filedef.h"
 #include "tooltip.h"
+#include "message.h"
 
 #define YY_NEVER_INTERACTIVE 1
 #define YY_NO_INPUT 1
@@ -49,7 +50,7 @@ static int           g_inputPosition;   //!< read offset during parsing
 static int           g_inputLines;      //!< number of line in the code fragment
 static int           g_yyLineNr;        //!< current line number
 static bool          g_needsTermination;
-static Definition   *g_searchCtx;
+static const Definition   *g_searchCtx;
 
 static bool          g_exampleBlock;
 static QCString      g_exampleName;
@@ -67,6 +68,8 @@ static Definition *  g_currentDefinition;
 static MemberDef *   g_currentMemberDef;
 static bool          g_includeCodeFragment;
 static const char *  g_currentFontClass;
+
+static const char *stateToString(int state);
 
 static void codify(const char* text) 
 { 
@@ -332,12 +335,13 @@ void parseXmlCode(
     int startLine,
     int endLine,
     bool inlineFragment,
-    MemberDef *,
-    bool,Definition *searchCtx,
+    const MemberDef *,
+    bool,const Definition *searchCtx,
     bool /*collectXRefs*/
     ) 
 {  
   if (s.isEmpty()) return;
+  printlex(yy_flex_debug, TRUE, __FILE__, fd ? fd->fileName().data(): NULL);
   
   g_code = &od;
   g_inputString   = s;
@@ -365,7 +369,7 @@ void parseXmlCode(
   if (exBlock && fd==0)
   {
     // create a dummy filedef for the example
-    g_sourceFileDef = new FileDef("",(exName?exName:"generated"));
+    g_sourceFileDef = createFileDef("",(exName?exName:"generated"));
     cleanupSourceDef = TRUE;
   }
   
@@ -393,6 +397,7 @@ void parseXmlCode(
     g_sourceFileDef=0;
   }
   
+  printlex(yy_flex_debug, FALSE, __FILE__, fd ? fd->fileName().data(): NULL);
   return;
 }
 
@@ -410,3 +415,4 @@ extern "C" { // some bogus code to keep the compiler happy
 #error "You seem to be using a version of flex newer than 2.5.4. These are currently incompatible with 2.5.4, and do NOT work with doxygen! Please use version 2.5.4 or expect things to be parsed wrongly! A bug report has been submitted (#732132)."
 #endif
 
+#include "xmlcode.l.h"

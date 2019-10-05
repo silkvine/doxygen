@@ -68,7 +68,7 @@ static QCString escapeId(const char *s)
   return res;
 }
 
-void TooltipManager::addTooltip(Definition *d)
+void TooltipManager::addTooltip(const Definition *d)
 {
   static bool sourceTooltips = Config_getBool(SOURCE_TOOLTIPS);
   if (!sourceTooltips) return;
@@ -114,7 +114,7 @@ void TooltipManager::writeTooltips(CodeOutputInterface &ol)
     QCString decl;
     if (d->definitionType()==Definition::TypeMember)
     {
-      MemberDef *md = (MemberDef*)d;
+      MemberDef *md = dynamic_cast<MemberDef*>(d);
       decl = md->declaration();
       if (!decl.isEmpty() && decl.at(0)=='@') // hide enum values
       {

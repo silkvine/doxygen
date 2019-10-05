@@ -40,6 +40,8 @@
 #include "htmlhelp.h"
 #include "ftvhelp.h"
 #include "dot.h"
+#include "dotgfxhierarchytable.h"
+#include "dotlegendgraph.h"
 #include "pagedef.h"
 #include "dirdef.h"
 #include "vhdldocgen.h"
@@ -146,7 +148,7 @@ static void endIndexHierarchy(OutputList &ol,int level)
 class MemberIndexList : public QList<MemberDef>
 {
   public:
-    typedef MemberDef ElementType;
+    typedef const MemberDef ElementType;
     MemberIndexList(uint letter) : QList<MemberDef>(), m_letter(letter) {}
     ~MemberIndexList() {}
     int compareValues(const MemberDef *md1, const MemberDef *md2) const
@@ -252,7 +254,7 @@ QCString fixSpaces(const QCString &s)
   return substitute(s," ","&#160;");
 }
 
-void startTitle(OutputList &ol,const char *fileName,Definition *def)
+void startTitle(OutputList &ol,const char *fileName,const Definition *def)
 {
   ol.startHeaderSection();
   if (def) def->writeSummaryLinks(ol);
@@ -285,7 +287,6 @@ void startFile(OutputList &ol,const char *name,const char *manName,
   }
   ol.writeSplitBar(altSidebarName ? altSidebarName : name);
   ol.writeSearchInfo();
-  resetDotNodeNumbering();
 }
 
 void endFile(OutputList &ol,bool skipNavIndex,bool skipEndContents,
@@ -309,7 +310,7 @@ void endFile(OutputList &ol,bool skipNavIndex,bool skipEndContents,
   TooltipManager::instance()->clearTooltips(); // Only clear after the last is written
 }
 
-void endFileWithNavPath(Definition *d,OutputList &ol)
+void endFileWithNavPath(const Definition *d,OutputList &ol)
 {
   static bool generateTreeView = Config_getBool(GENERATE_TREEVIEW);
   QCString navPath;
@@ -365,7 +366,7 @@ void addMembersToIndex(T *def,LayoutDocManager::LayoutPart part,
           MemberDef *md;
           for (mi.toFirst();(md=mi.current());++mi)
           {
-            MemberList *enumList = md->enumFieldList();
+            const MemberList *enumList = md->enumFieldList();
             bool isDir = enumList!=0 && md->isEnumerate();
             bool isAnonymous = md->name().find('@')!=-1;
             static bool hideUndocMembers = Config_getBool(HIDE_UNDOC_MEMBERS);
@@ -490,7 +491,7 @@ static void writeClassTree(OutputList &ol,const BaseClassList *bcl,bool hideSupe
       }
       ol.startIndexListItem();
       //printf("Passed...\n");
-      bool hasChildren = !cd->visited && !hideSuper && classHasVisibleChildren(cd);
+      bool hasChildren = !cd->isVisited() && !hideSuper && classHasVisibleChildren(cd);
       //printf("tree4: Has children %s: %d\n",cd->name().data(),hasChildren);
       if (cd->isLinkable())
       {
@@ -537,8 +538,8 @@ static void writeClassTree(OutputList &ol,const BaseClassList *bcl,bool hideSupe
       if (hasChildren)
       {
         //printf("Class %s at %p visited=%d\n",cd->name().data(),cd,cd->visited);
-        bool wasVisited=cd->visited;
-        cd->visited=TRUE;
+        bool wasVisited=cd->isVisited();
+        cd->setVisited(TRUE);
         if (cd->getLanguage()==SrcLangExt_VHDL)
         {
           writeClassTree(ol,cd->baseClasses(),wasVisited,level+1,ftv,addToIndex);
@@ -620,7 +621,7 @@ static void writeDirTreeNode(OutputList &ol, DirDef *dd, int level, FTVHelp* ftv
                (tocExpand &&              // or toc expand and
                 dd->getFiles() && dd->getFiles()->count()>0 // there are files
                );
-  //printf("gd=`%s': pageDict=%d\n",gd->name().data(),gd->pageDict->count());
+  //printf("gd='%s': pageDict=%d\n",gd->name().data(),gd->pageDict->count());
   if (addToIndex)
   {
     Doxygen::indexList->addContentsItem(isDir,dd->shortName(),dd->getReference(),dd->getOutputFileBase(),0,TRUE,TRUE);
@@ -872,7 +873,7 @@ static void writeClassTreeForList(OutputList &ol,ClassSDict *cl,bool &started,FT
           started=TRUE;
         }
         ol.startIndexListItem();
-        bool hasChildren = !cd->visited && classHasVisibleChildren(cd);
+        bool hasChildren = !cd->isVisited() && classHasVisibleChildren(cd);
         //printf("list: Has children %s: %d\n",cd->name().data(),hasChildren);
         if (cd->isLinkable())
         {
@@ -913,13 +914,13 @@ static void writeClassTreeForList(OutputList &ol,ClassSDict *cl,bool &started,FT
         }
         if (cd->getLanguage()==SrcLangExt_VHDL && hasChildren)
         {
-          writeClassTree(ol,cd->baseClasses(),cd->visited,1,ftv,addToIndex);
-          cd->visited=TRUE;
+          writeClassTree(ol,cd->baseClasses(),cd->isVisited(),1,ftv,addToIndex);
+          cd->setVisited(TRUE);
         }
         else if (hasChildren)
         {
-          writeClassTree(ol,cd->subClasses(),cd->visited,1,ftv,addToIndex);
-          cd->visited=TRUE;
+          writeClassTree(ol,cd->subClasses(),cd->isVisited(),1,ftv,addToIndex);
+          cd->setVisited(TRUE);
         }
         ol.endIndexListItem();
       }
@@ -1649,14 +1650,14 @@ void writeClassTree(ClassSDict *clDict,FTVHelp *ftv,bool addToIndex,bool globalO
   }
 }
 
-static void writeNamespaceTree(NamespaceSDict *nsDict,FTVHelp *ftv,
+static void writeNamespaceTree(const NamespaceSDict *nsDict,FTVHelp *ftv,
                                bool rootOnly,bool showClasses,bool addToIndex,ClassDef::CompoundType ct)
 {
   static bool sliceOpt = Config_getBool(OPTIMIZE_OUTPUT_SLICE);
   if (nsDict)
   {
     NamespaceSDict::Iterator nli(*nsDict);
-    NamespaceDef *nd;
+    const NamespaceDef *nd;
     for (nli.toFirst();(nd=nli.current());++nli)
     {
       if (nd->localName().find('@')==-1 &&
@@ -1942,6 +1943,11 @@ inline bool isId1(int c)
   return (c<127 && c>31); // printable ASCII character
 }
 
+static QCString letterToString(uint letter)
+{
+  return QString(QChar(letter)).utf8();
+}
+
 static QCString letterToLabel(uint startLetter)
 {
   char s[11]; // max 0x12345678 + '\0'
@@ -1985,7 +1991,7 @@ static QCString letterToLabel(uint startLetter)
 class PrefixIgnoreClassList : public ClassList
 {
   public:
-    typedef ClassDef ElementType;
+    typedef const ClassDef ElementType;
     PrefixIgnoreClassList(uint letter) : m_letter(letter) {}
     uint letter() const { return m_letter; }
   private:
@@ -2071,7 +2077,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
 
   // first count the number of headers
   ClassSDict::Iterator cli(*Doxygen::classSDict);
-  ClassDef *cd;
+  const ClassDef *cd;
   uint startLetter=0;
   int headerItems=0;
   for (;(cd=cli.current());++cli)
@@ -2100,7 +2106,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
     if (headerItems) alphaLinks += "&#160;|&#160;";
     headerItems++;
     QCString li = letterToLabel(*pLetter);
-    QCString ls = QString(QChar(*pLetter)).utf8();
+    QCString ls = letterToString(*pLetter);
     alphaLinks += (QCString)"<a class=\"qindex\" href=\"#letter_" +
                   li + "\">" +
                   ls + "</a>";
@@ -2222,6 +2228,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
     // the last column may contain less items then the others
     //int colsInRow = (i<rows-1) ? columns : itemsInLastRow;
     //printf("row [%d]\n",i);
+    bool cellCont = false;
     for (j=0;j<columns;j++) // foreach table column
     {
       if (colIterators[j])
@@ -2233,6 +2240,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
           {
             if (cell->letter()!=0)
             {
+              cellCont = true;
               QCString s = letterToLabel(cell->letter());
               ol.writeString("<td rowspan=\"2\" valign=\"bottom\">");
               ol.writeString("<a name=\"letter_");
@@ -2241,7 +2249,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
               ol.writeString("<table border=\"0\" cellspacing=\"0\" cellpadding=\"0\">"
                   "<tr>"
                   "<td><div class=\"ah\">&#160;&#160;");
-              ol.writeString(QString(QChar(cell->letter())).utf8());
+              ol.writeString(letterToString(cell->letter()));
               ol.writeString(         "&#160;&#160;</div>"
                   "</td>"
                   "</tr>"
@@ -2249,6 +2257,7 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
             }
             else if (cell->classDef()!=(ClassDef*)0x8)
             {
+              cellCont = true;
               cd = cell->classDef();
               ol.writeString("<td valign=\"top\">");
               QCString namesp,cname;
@@ -2287,20 +2296,21 @@ static void writeAlphabeticalClassList(OutputList &ol, ClassDef::CompoundType ct
               }
               ol.writeNonBreakableSpace(3);
             }
-	    else 
-	    {
-              ol.writeString("<td>");
-            }
             ++(*colIterators[j]);
-            ol.writeString("</td>");
+            if (cell->letter()!=0 || cell->classDef()!=(ClassDef*)0x8)
+	    {
+              ol.writeString("</td>\n");
+            }
           }
         }
         else
         {
+          cellCont = true;
           ol.writeString("<td></td>");
         }
       }
     }
+    if (!cellCont) ol.writeString("<td></td>"); // we need at least one cell in case of xhtml
     ol.writeString("</tr>\n");
   }
   ol.writeString("</table>\n");
@@ -2744,7 +2754,7 @@ static void writeAnnotatedExceptionIndex(OutputList &ol)
 static void writeClassLinkForMember(OutputList &ol,MemberDef *md,const char *separator,
                              QCString &prevClassName)
 {
-  ClassDef *cd=md->getClassDef();
+  const ClassDef *cd=md->getClassDef();
   if ( cd && prevClassName!=cd->displayName())
   {
     ol.docify(separator);
@@ -2758,7 +2768,7 @@ static void writeClassLinkForMember(OutputList &ol,MemberDef *md,const char *sep
 static void writeFileLinkForMember(OutputList &ol,MemberDef *md,const char *separator,
                              QCString &prevFileName)
 {
-  FileDef *fd=md->getFileDef();
+  const FileDef *fd=md->getFileDef();
   if (fd && prevFileName!=fd->name())
   {
     ol.docify(separator);
@@ -2772,7 +2782,7 @@ static void writeFileLinkForMember(OutputList &ol,MemberDef *md,const char *sepa
 static void writeNamespaceLinkForMember(OutputList &ol,MemberDef *md,const char *separator,
                              QCString &prevNamespaceName)
 {
-  NamespaceDef *nd=md->getNamespaceDef();
+  const NamespaceDef *nd=md->getNamespaceDef();
   if (nd && prevNamespaceName!=nd->displayName())
   {
     ol.docify(separator);
@@ -2834,7 +2844,7 @@ static void writeMemberList(OutputList &ol,bool useSections,int page,
           if (!firstItem)    ol.endItemListItem();
           if (!firstSection) ol.endItemList();
           QCString cs = letterToLabel(ml->letter());
-          QCString cl = QString(QChar(ml->letter())).utf8();
+          QCString cl = letterToString(ml->letter());
           QCString anchor=(QCString)"index_"+convertToId(cs);
           QCString title=(QCString)"- "+cl+" -";
           ol.startSection(anchor,title,SectionInfo::Subsection);
@@ -2894,9 +2904,7 @@ void initClassMemberIndices()
 void addClassMemberNameToIndex(MemberDef *md)
 {
   static bool hideFriendCompounds = Config_getBool(HIDE_FRIEND_COMPOUNDS);
-  ClassDef *cd=0;
-
-
+  const ClassDef *cd=0;
 
   if (md->isLinkableInProject() &&
       (cd=md->getClassDef())    &&
@@ -2978,7 +2986,7 @@ void initNamespaceMemberIndices()
 
 void addNamespaceMemberNameToIndex(MemberDef *md)
 {
-  NamespaceDef *nd=md->getNamespaceDef();
+  const NamespaceDef *nd=md->getNamespaceDef();
   if (nd && nd->isLinkableInProject() && md->isLinkableInProject())
   {
     QCString n = md->name();
@@ -3045,7 +3053,7 @@ void initFileMemberIndices()
 
 void addFileMemberNameToIndex(MemberDef *md)
 {
-  FileDef *fd=md->getFileDef();
+  const FileDef *fd=md->getFileDef();
   if (fd && fd->isLinkableInProject() && md->isLinkableInProject())
   {
     QCString n = md->name();
@@ -3117,7 +3125,7 @@ static void writeQuickMemberIndex(OutputList &ol,
   {
     uint i = ml->letter();
     QCString is = letterToLabel(i);
-    QCString ci = QString(QChar(i)).utf8();
+    QCString ci = letterToString(i);
     QCString anchor;
     QCString extension=Doxygen::htmlFileExtension;
     if (!multiPage)
@@ -3207,7 +3215,7 @@ static void writeClassMemberIndexFiltered(OutputList &ol, ClassMemberHighlight h
       {
         fileName+="_"+letterToLabel(page);
       }
-      QCString cs = QString(QChar(page)).utf8();
+      QCString cs = letterToString(page);
       if (addToIndex)
       {
         Doxygen::indexList->addContentsItem(FALSE,cs,0,fileName,0,FALSE,TRUE);
@@ -3386,7 +3394,7 @@ static void writeFileMemberIndexFiltered(OutputList &ol, FileMemberHighlight hl)
       {
         fileName+="_"+letterToLabel(page);
       }
-      QCString cs = QString(QChar(page)).utf8();
+      QCString cs = letterToString(page);
       if (addToIndex)
       {
         Doxygen::indexList->addContentsItem(FALSE,cs,0,fileName,0,FALSE,TRUE);
@@ -3562,7 +3570,7 @@ static void writeNamespaceMemberIndexFiltered(OutputList &ol,
       {
         fileName+="_"+letterToLabel(page);
       }
-      QCString cs = QString(QChar(page)).utf8();
+      QCString cs = letterToString(page);
       if (addToIndex)
       {
         Doxygen::indexList->addContentsItem(FALSE,cs,0,fileName,0,FALSE,TRUE);
@@ -3885,7 +3893,7 @@ static int countGroups()
   {
     if (!gd->isReference())
     {
-      gd->visited=FALSE;
+      //gd->visited=FALSE;
       count++;
     }
   }
@@ -3903,7 +3911,6 @@ static int countDirs()
   {
     if (dd->isLinkableInProject())
     {
-      dd->visited=FALSE;
       count++;
     }
   }
@@ -3918,7 +3925,9 @@ void writeGraphInfo(OutputList &ol)
   if (!Config_getBool(HAVE_DOT) || !Config_getBool(GENERATE_HTML)) return;
   ol.pushGeneratorState();
   ol.disableAllBut(OutputGenerator::Html);
-  generateGraphLegend(Config_getString(HTML_OUTPUT));
+
+  DotLegendGraph gd;
+  gd.writeGraph(Config_getString(HTML_OUTPUT));
 
   bool &stripCommentsStateRef = Config_getBool(STRIP_CODE_COMMENTS);
   bool oldStripCommentsState = stripCommentsStateRef;
@@ -3943,8 +3952,9 @@ void writeGraphInfo(OutputList &ol)
     legendDocs = legendDocs.left(s+8) + "[!-- SVG 0 --]\n" + legendDocs.mid(e);
     //printf("legendDocs=%s\n",legendDocs.data());
   }
-  FileDef fd("","graph_legend");
-  ol.generateDoc("graph_legend",1,&fd,0,legendDocs,FALSE,FALSE);
+  FileDef *fd = createFileDef("","graph_legend.dox");
+  ol.generateDoc("graph_legend",1,fd,0,legendDocs,FALSE,FALSE);
+  delete fd;
 
   // restore config settings
   stripCommentsStateRef = oldStripCommentsState;
@@ -4004,7 +4014,7 @@ static void writeGroupTreeNode(OutputList &ol, GroupDef *gd, int level, FTVHelp*
     }
 
     bool isDir = hasSubGroups || hasSubPages || numSubItems>0;
-    //printf("gd=`%s': pageDict=%d\n",gd->name().data(),gd->pageDict->count());
+    //printf("gd='%s': pageDict=%d\n",gd->name().data(),gd->pageDict->count());
     if (addToIndex)
     {
       Doxygen::indexList->addContentsItem(isDir,gd->groupTitle(),gd->getReference(),gd->getOutputFileBase(),0,isDir,TRUE);
@@ -4048,7 +4058,7 @@ static void writeGroupTreeNode(OutputList &ol, GroupDef *gd, int level, FTVHelp*
           MemberDef *md;
           for (mi.toFirst();(md=mi.current());++mi)
           {
-            MemberList *enumList = md->enumFieldList();
+            const MemberList *enumList = md->enumFieldList();
             bool isDir = enumList!=0 && md->isEnumerate();
             if (md->isVisible() && md->name().find('@')==-1)
             {
@@ -4729,7 +4739,7 @@ static void writeIndex(OutputList &ol)
       ol.parseText(/*projPrefix+*/theTranslator->trExceptionIndex());
       ol.endIndexSection(isCompoundIndex);
     }
-    if (documentedFiles>0)
+    if (Config_getBool(SHOW_FILES) && (documentedFiles>0))
     {
       ol.startIndexSection(isFileIndex);
       ol.parseText(/*projPrefix+*/theTranslator->trFileIndex());
@@ -5195,7 +5205,7 @@ void renderMemberIndicesAsJs(FTextStream &t,
           if (!firstLetter) t << "," << endl;
           uint letter = ml->letter();
           QCString is = letterToLabel(letter);
-          QCString ci = QString(QChar(letter)).utf8();
+          QCString ci = letterToString(letter);
           QCString anchor;
           QCString extension=Doxygen::htmlFileExtension;
           QCString fullName = getInfo(i)->fname;

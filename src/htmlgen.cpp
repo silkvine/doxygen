@@ -25,10 +25,15 @@
 #include "config.h"
 #include "util.h"
 #include "doxygen.h"
-#include "logos.h"
 #include "diagram.h"
 #include "version.h"
 #include "dot.h"
+#include "dotcallgraph.h"
+#include "dotclassgraph.h"
+#include "dotdirdeps.h"
+#include "dotgfxhierarchytable.h"
+#include "dotgroupcollaboration.h"
+#include "dotincldepgraph.h"
 #include "language.h"
 #include "htmlhelp.h"
 #include "docparser.h"
@@ -52,6 +57,7 @@ static QCString g_header;
 static QCString g_footer;
 static QCString g_mathjax_code;
 
+static bool DoxyCodeLineOpen = FALSE;
 
 // note: this is only active if DISABLE_INDEX=YES, if DISABLE_INDEX is disabled, this
 // part will be rendered inside menu.js
@@ -525,7 +531,12 @@ void HtmlCodeGenerator::writeLineNumber(const char *ref,const char *filename,
   qsnprintf(lineNumber,maxLineNrStr,"%5d",l);
   qsnprintf(lineAnchor,maxLineNrStr,"l%05d",l);
 
-  m_t << "<div class=\"line\">";
+  if (!DoxyCodeLineOpen)
+  {
+    m_t << "<div class=\"line\">";
+    DoxyCodeLineOpen = TRUE;
+  }
+
   m_t << "<a name=\"" << lineAnchor << "\"></a><span class=\"lineno\">";
   if (filename)
   {
@@ -556,7 +567,7 @@ void HtmlCodeGenerator::_writeCodeLink(const char *className,
   if (ref)
   {
     m_t << "<a class=\"" << className << "Ref\" ";
-    m_t << externalLinkTarget() << externalRef(m_relPath,ref,FALSE);
+    m_t << externalLinkTarget();
   }
   else
   {
@@ -656,12 +667,16 @@ void HtmlCodeGenerator::writeTooltip(const char *id, const DocLinkInfo &docInfo,
 }
 
 
-void HtmlCodeGenerator::startCodeLine(bool hasLineNumbers)
+void HtmlCodeGenerator::startCodeLine(bool)
 {
   if (m_streamSet)
   {
-    if (!hasLineNumbers) m_t << "<div class=\"line\">";
     m_col=0;
+    if (!DoxyCodeLineOpen)
+    {
+      m_t << "<div class=\"line\">";
+      DoxyCodeLineOpen = TRUE;
+    }
   }
 }
 
@@ -674,7 +689,11 @@ void HtmlCodeGenerator::endCodeLine()
       m_t << " ";
       m_col++;
     }
-    m_t << "</div>";
+    if (DoxyCodeLineOpen)
+    {
+      m_t << "</div>\n";
+      DoxyCodeLineOpen = FALSE;
+    }
   }
 }
 
@@ -859,7 +878,7 @@ void HtmlGenerator::writeSearchData(const char *dir)
     {
       searchCss = mgr.getAsString("search.css");
     }
-    searchCss = substitute(replaceColorMarkers(searchCss),"$doxygenversion",versionString);
+    searchCss = substitute(replaceColorMarkers(searchCss),"$doxygenversion",getVersion());
     t << searchCss;
     Doxygen::indexList->addStyleSheetFile("search/search.css");
   }
@@ -868,20 +887,20 @@ void HtmlGenerator::writeSearchData(const char *dir)
 void HtmlGenerator::writeStyleSheetFile(QFile &file)
 {
   FTextStream t(&file);
-  t << replaceColorMarkers(substitute(ResourceMgr::instance().getAsString("doxygen.css"),"$doxygenversion",versionString));
+  t << replaceColorMarkers(substitute(ResourceMgr::instance().getAsString("doxygen.css"),"$doxygenversion",getVersion()));
 }
 
 void HtmlGenerator::writeHeaderFile(QFile &file, const char * /*cssname*/)
 {
   FTextStream t(&file);
-  t << "<!-- HTML header for doxygen " << versionString << "-->" << endl;
+  t << "<!-- HTML header for doxygen " << getVersion() << "-->" << endl;
   t << ResourceMgr::instance().getAsString("header.html");
 }
 
 void HtmlGenerator::writeFooterFile(QFile &file)
 {
   FTextStream t(&file);
-  t << "<!-- HTML footer for doxygen " << versionString << "-->" <<  endl;
+  t << "<!-- HTML footer for doxygen " << getVersion() << "-->" <<  endl;
   t << ResourceMgr::instance().getAsString("footer.html");
 }
 
@@ -906,7 +925,7 @@ void HtmlGenerator::startFile(const char *name,const char *,
   t << substituteHtmlKeywords(g_header,convertToHtml(filterTitle(title)),relPath);
 
   t << "<!-- " << theTranslator->trGeneratedBy() << " Doxygen "
-    << versionString << " -->" << endl;
+    << getVersion() << " -->" << endl;
   //static bool generateTreeView = Config_getBool(GENERATE_TREEVIEW);
   static bool searchEngine = Config_getBool(SEARCHENGINE);
   if (searchEngine /*&& !generateTreeView*/)
@@ -971,7 +990,7 @@ QCString HtmlGenerator::writeLogoAsString(const char *path)
             "<img class=\"footer\" src=\"";
   result += path;
   result += "doxygen.png\" alt=\"doxygen\"/></a> ";
-  result += versionString;
+  result += getVersion();
   result += " ";
   return result;
 }
@@ -1024,7 +1043,7 @@ void HtmlGenerator::writeStyleInfo(int part)
       //t << "H1 { text-align: center; border-width: thin none thin none;" << endl;
       //t << "     border-style : double; border-color : blue; padding-left : 1em; padding-right : 1em }" << endl;
 
-      t << replaceColorMarkers(substitute(ResourceMgr::instance().getAsString("doxygen.css"),"$doxygenversion",versionString));
+      t << replaceColorMarkers(substitute(ResourceMgr::instance().getAsString("doxygen.css"),"$doxygenversion",getVersion()));
       endPlainFile();
       Doxygen::indexList->addStyleSheetFile("doxygen.css");
     }
@@ -1122,7 +1141,7 @@ void HtmlGenerator::startIndexItem(const char *ref,const char *f)
     if (ref)
     {
       t << "<a class=\"elRef\" ";
-      t << externalLinkTarget() << externalRef(relPath,ref,FALSE);
+      t << externalLinkTarget();
     }
     else
     {
@@ -1168,7 +1187,7 @@ void HtmlGenerator::writeObjectLink(const char *ref,const char *f,
   if (ref)
   {
     t << "<a class=\"elRef\" ";
-    t << externalLinkTarget() << externalRef(relPath,ref,FALSE);
+    t << externalLinkTarget();
   }
   else
   {
@@ -1776,7 +1795,7 @@ void HtmlGenerator::startDotGraph()
   startSectionHeader(t,relPath,m_sectionCount);
 }
 
-void HtmlGenerator::endDotGraph(const DotClassGraph &g)
+void HtmlGenerator::endDotGraph(DotClassGraph &g)
 {
   bool generateLegend = Config_getBool(GENERATE_LEGEND);
   bool umlLook = Config_getBool(UML_LOOK);
@@ -1804,7 +1823,7 @@ void HtmlGenerator::startInclDepGraph()
   startSectionHeader(t,relPath,m_sectionCount);
 }
 
-void HtmlGenerator::endInclDepGraph(const DotInclDepGraph &g)
+void HtmlGenerator::endInclDepGraph(DotInclDepGraph &g)
 {
   endSectionHeader(t);
   startSectionSummary(t,m_sectionCount);
@@ -1822,7 +1841,7 @@ void HtmlGenerator::startGroupCollaboration()
   startSectionHeader(t,relPath,m_sectionCount);
 }
 
-void HtmlGenerator::endGroupCollaboration(const DotGroupCollaboration &g)
+void HtmlGenerator::endGroupCollaboration(DotGroupCollaboration &g)
 {
   endSectionHeader(t);
   startSectionSummary(t,m_sectionCount);
@@ -1840,7 +1859,7 @@ void HtmlGenerator::startCallGraph()
   startSectionHeader(t,relPath,m_sectionCount);
 }
 
-void HtmlGenerator::endCallGraph(const DotCallGraph &g)
+void HtmlGenerator::endCallGraph(DotCallGraph &g)
 {
   endSectionHeader(t);
   startSectionSummary(t,m_sectionCount);
@@ -1858,7 +1877,7 @@ void HtmlGenerator::startDirDepGraph()
   startSectionHeader(t,relPath,m_sectionCount);
 }
 
-void HtmlGenerator::endDirDepGraph(const DotDirDeps &g)
+void HtmlGenerator::endDirDepGraph(DotDirDeps &g)
 {
   endSectionHeader(t);
   startSectionSummary(t,m_sectionCount);
@@ -1871,7 +1890,7 @@ void HtmlGenerator::endDirDepGraph(const DotDirDeps &g)
   m_sectionCount++;
 }
 
-void HtmlGenerator::writeGraphicalHierarchy(const DotGfxHierarchyTable &g)
+void HtmlGenerator::writeGraphicalHierarchy(DotGfxHierarchyTable &g)
 {
   g.writeGraph(t,dir,fileName);
 }
@@ -1995,7 +2014,7 @@ void HtmlGenerator::endParamList()
   t << "</dl>";
 }
 
-void HtmlGenerator::writeDoc(DocNode *n,Definition *ctx,MemberDef *)
+void HtmlGenerator::writeDoc(DocNode *n,const Definition *ctx,const MemberDef *)
 {
   HtmlDocVisitor *visitor = new HtmlDocVisitor(t,m_codeGen,ctx);
   n->accept(visitor);
@@ -2442,7 +2461,7 @@ void HtmlGenerator::writeSearchPage()
     t << substituteHtmlKeywords(g_header,"Search","");
 
     t << "<!-- " << theTranslator->trGeneratedBy() << " Doxygen "
-      << versionString << " -->" << endl;
+      << getVersion() << " -->" << endl;
     t << "<script type=\"text/javascript\">\n";
 		t << "/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */\n";
 		t << "var searchBox = new SearchBox(\"searchBox\", \""
@@ -2496,7 +2515,7 @@ void HtmlGenerator::writeExternalSearchPage()
     t << substituteHtmlKeywords(g_header,"Search","");
 
     t << "<!-- " << theTranslator->trGeneratedBy() << " Doxygen "
-      << versionString << " -->" << endl;
+      << getVersion() << " -->" << endl;
     t << "<script type=\"text/javascript\">\n";
 		t << "/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */\n";
 		t << "var searchBox = new SearchBox(\"searchBox\", \""
@@ -2633,6 +2652,19 @@ void HtmlGenerator::endConstraintList()
   t << "</dd>" << endl;
   t << "</dl>" << endl;
   t << "</div>" << endl;
+}
+
+void HtmlGenerator::startCodeFragment()
+{
+  t << PREFRAG_START;
+}
+
+void HtmlGenerator::endCodeFragment()
+{
+  //endCodeLine checks is there is still an open code line, if so closes it.
+  endCodeLine();
+
+  t << PREFRAG_END;
 }
 
 void HtmlGenerator::lineBreak(const char *style)
@@ -2820,7 +2852,7 @@ void HtmlGenerator::endMemberDeclaration(const char *anchor,const char *inheritI
   t << "\"><td class=\"memSeparator\" colspan=\"2\">&#160;</td></tr>\n";
 }
 
-void HtmlGenerator::setCurrentDoc(Definition *context,const char *anchor,bool isSourceFile)
+void HtmlGenerator::setCurrentDoc(const Definition *context,const char *anchor,bool isSourceFile)
 {
   if (Doxygen::searchIndex)
   {

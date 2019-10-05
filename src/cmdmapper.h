@@ -179,6 +179,8 @@ enum HtmlTagType
   HTML_BLOCKQUOTE= 33,
   HTML_STRIKE    = 34,
   HTML_UNDERLINE = 35,
+  HTML_INS       = 36,
+  HTML_DEL       = 37,
 
   XML_CmdMask    = 0x100,
 
@@ -212,7 +214,7 @@ class Mapper
 {
   public:
     int map(const char *n);
-    QString find(const int n);
+    QCString find(const int n);
     Mapper(const CommandMap *cm,bool caseSensitive);
   private:
     QDict<int> m_map;

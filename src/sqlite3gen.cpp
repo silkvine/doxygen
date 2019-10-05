@@ -127,7 +127,7 @@ const char * table_schema[][2] = {
    * I rolled this back when I had trouble getting a FileDef for all types
    * (PageDef in particular).
    *
-   * Note: all colums referencing path would need an update.
+   * Note: all columns referencing path would need an update.
    */
   { "path",
     "CREATE TABLE IF NOT EXISTS path (\n"
@@ -233,7 +233,7 @@ const char * table_schema[][2] = {
   },
   { "reimplements",
     "CREATE TABLE IF NOT EXISTS reimplements (\n"
-      "\t-- Inherited member reimplmentation relations.\n"
+      "\t-- Inherited member reimplementation relations.\n"
       "\trowid                  INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n"
       "\tmemberdef_rowid        INTEGER NOT NULL REFERENCES memberdef, -- reimplementing memberdef id.\n"
       "\treimplemented_rowid    INTEGER NOT NULL REFERENCES memberdef, -- reimplemented memberdef id.\n"
@@ -924,7 +924,7 @@ static int insertPath(QCString name, bool local=TRUE, bool found=TRUE, int type=
 
 static void recordMetadata()
 {
-  bindTextParameter(meta_insert,":doxygen_version",versionString);
+  bindTextParameter(meta_insert,":doxygen_version",getVersion());
   bindTextParameter(meta_insert,":schema_version","0.2.0"); //TODO: this should be a constant somewhere; not sure where
   bindTextParameter(meta_insert,":generated_at",dateToString(TRUE), FALSE);
   bindTextParameter(meta_insert,":generated_on",dateToString(FALSE), FALSE);
@@ -1015,16 +1015,16 @@ static void insertMemberReference(const MemberDef *src, const MemberDef *dst, co
 
 static void insertMemberFunctionParams(int memberdef_id, const MemberDef *md, const Definition *def)
 {
-  ArgumentList *declAl = md->declArgumentList();
-  ArgumentList *defAl = md->argumentList();
+  const ArgumentList *declAl = md->declArgumentList();
+  const ArgumentList *defAl = md->argumentList();
   if (declAl!=0 && defAl!=0 && declAl->count()>0)
   {
     ArgumentListIterator declAli(*declAl);
     ArgumentListIterator defAli(*defAl);
-    Argument *a;
+    const Argument *a;
     for (declAli.toFirst();(a=declAli.current());++declAli)
     {
-      Argument *defArg = defAli.current();
+      const Argument *defArg = defAli.current();
 
       if (!a->attrib.isEmpty())
       {
@@ -1410,7 +1410,7 @@ static void writeTemplateArgumentList(const ArgumentList * al,
 
 static void writeMemberTemplateLists(const MemberDef *md)
 {
-  ArgumentList *templMd = md->templateArguments();
+  const ArgumentList *templMd = md->templateArguments();
   if (templMd) // function template prefix
   {
     writeTemplateArgumentList(templMd,md->getClassDef(),md->getFileDef());
@@ -1434,7 +1434,7 @@ QCString getSQLDocBlock(const Definition *scope,
     fileName,
     lineNr,
     const_cast<Definition*>(scope),
-    const_cast<MemberDef*>(reinterpret_cast<const MemberDef*>(def)),
+    dynamic_cast<const MemberDef*>(def),
     doc,
     FALSE,
     FALSE
@@ -1675,7 +1675,7 @@ static void generateSqlite3ForMember(const MemberDef *md, struct Refid scope_ref
 
   if (isFunc)
   {
-    ArgumentList *al = md->argumentList();
+    const ArgumentList *al = md->argumentList();
     if (al!=0)
     {
       bindIntParameter(memberdef_insert,":const",al->constSpecifier);
@@ -2009,7 +2009,11 @@ static void generateSqlite3ForClass(const ClassDef *cd)
     if (nm.isEmpty() && ii->fileDef) nm = ii->fileDef->docName();
     if (!nm.isEmpty())
     {
-      int header_id=insertPath(ii->fileDef->absFilePath(),!ii->fileDef->isReference());
+      int header_id=-1;
+      if (ii->fileDef)
+      {
+        insertPath(ii->fileDef->absFilePath(),!ii->fileDef->isReference());
+      }
       DBG_CTX(("-----> ClassDef includeInfo for %s\n", nm.data()));
       DBG_CTX(("       local    : %d\n", ii->local));
       DBG_CTX(("       imported : %d\n", ii->imported));
